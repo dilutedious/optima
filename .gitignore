@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# User data — never commit
+data/users/*.json
+
+# macOS
+.DS_Store
+
+# Editor / IDE noise
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build output / one-off artefacts
+dist/
+*.egg-info/
+
+# Local scratch
+.rubric_tmp/
