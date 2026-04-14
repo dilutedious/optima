@@ -1,0 +1,15 @@
+/* Optima v0.1 - bare-bones styles. Keeps the brand colours but doesn't bother
+   with theming, focus rings, or animations yet. */
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #1c1c28; background: #f7f7fb; }
+
+/* splash */
+body.splash { display: grid; place-items: center; min-height: 100vh;
+  background: linear-gradient(135deg, #5e4ae3 0%, #7b68ee 100%);
+  color: #fff;
+}
+.splash-card { text-align: center; }
+.splash-card .logo { width: 120px; height: 120px; background: rgba(255,255,255,0.15);
+  border: 2px solid rgba(255,255,255,0.7); border-radius: 32px; display:grid; place-items:center;
+  font-size: 50px; margin: 0 auto 24px; }
