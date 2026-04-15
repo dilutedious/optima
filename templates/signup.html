@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Sign up — Optima</title>
+<link rel="stylesheet" href="/static/style.css"></head>
+<body class="auth-page">
+  <form class="card" method="post" action="/signup">
+    <div class="logo small">○</div>
+    <h1>Create account</h1>
+    <p class="sub">No email needed. Just pick a name and a password.</p>
+    <label>Username</label>
+    <input type="text" name="username" placeholder="username" required autofocus>
+    <label>Password</label>
+    <input type="password" name="password" placeholder="password" required>
+    <label>Confirm password</label>
+    <input type="password" name="confirm" placeholder="password again" required>
+    <button class="btn full">Sign up</button>
+    <p class="muted small">Already have an account? <a href="/login">Sign in</a></p>
+  </form>
+</body></html>
