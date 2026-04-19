@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Dashboard — Optima</title>
+<link rel="stylesheet" href="/static/style.css"></head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">○</div>
+    <a class="nav active" title="Dashboard">▦</a>
+    <a class="nav" title="Weekly">📅</a>
+    <a class="nav" title="Monthly">▣</a>
+    <a class="nav" title="Settings">⚙</a>
+    <a class="nav" title="Sign out" href="/logout">↩</a>
+  </aside>
+  <main class="content">
+    <h1>Dashboard</h1>
+    <p class="muted">Hi {{ user }}, here's a preview of how the dashboard will look.</p>
+    <p class="muted small">(Prototype v0.1 — these tasks are hard-coded mocks.)</p>
+    <div class="card">
+      <h2>Priority tasks</h2>
+      {% for t in tasks %}
+        <div class="task">
+          <span class="swatch" style="background: {{ t.colour }}"></span>
+          <div>
+            <div class="name">{{ t.name }}{% if t.crit %} <span class="crit">CRITICAL</span>{% endif %}</div>
+            <div class="meta">{{ t.subject }} · due {{ t.due }} · {{ t.hours }}h · weighting {{ t.weighting }}%</div>
+          </div>
+          <div class="right">
+            <div class="pri">{% if t.crit %}!!{% else %}{{ t.score }}{% endif %}</div>
+            <div class="small muted">priority</div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="card">
+      <h2>Cushion</h2>
+      <p class="muted">(Gauge widget not built yet — will land in v0.2.)</p>
+    </div>
+  </main>
+</body></html>
