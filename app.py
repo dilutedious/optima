@@ -1,24 +1,66 @@
 """
-Optima — Prototype v0.1
-Date: 2026-04-22
-Build status: Skeleton only.
+Optima — in-progress v0.2.
 
-Whats here:
-- Splash + login form (no real auth — any creds get you in)
-- Dashboard with three hard-coded mock tasks so I can show the layout to
-  testers before plumbing the real engine.
-- No JSON yet. No scheduler. No weekly/monthly views. Settings is just a
-  placeholder.
+Storage scaffold landed; auth + signup wiring follows in the next commits.
+Data shape for a user JSON (the seven domain objects from the planning
+document, expressed as nested dicts for now — dataclass refactor is a v0.3
+job once the package is split):
 
-Run:
-    python3 app.py
-Then open http://127.0.0.1:5050/
+    {
+      "username": str,
+      "password_hash": str,
+      "subjects":    [{"id": int, "name": str, "colour": str}, ...],
+      "constraints": [{"id": int, "name": str, "day_of_fortnight": int,
+                       "start_time": float, "end_time": float}, ...],
+      "assignments": [{"id": int, "name": str, "subject_id": int,
+                       "due_date": str, "weighting": float,
+                       "hours_required": float}, ...],
+      "schedule_blocks": [{"assignment_id": int, "date_iso": str,
+                            "start_time": float, "duration": float}, ...],
+      "wake_time": float,
+      "bed_time":  float,
+    }
 """
+
+import json
+from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, session, url_for
 
+
+DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+# Seeded into a fresh account so a tester has something to react to. The
+# planning doc lists "client picks their own" as a v0.3 requirement.
+DEFAULT_SUBJECTS = [
+    {"id": 1, "name": "English",              "colour": "#E5764C"},
+    {"id": 2, "name": "Mathematics",          "colour": "#4C8FE5"},
+    {"id": 3, "name": "Software Engineering", "colour": "#7B68EE"},
+]
+
+
+def user_path(u: str) -> Path:
+    safe = "".join(c for c in u if c.isalnum() or c in "._-@").lower()
+    return DATA_DIR / f"{safe}.json"
+
+
+def load_user(u: str):
+    p = user_path(u)
+    if not p.exists():
+        return None
+    return json.loads(p.read_text())
+
+
+def save_user(data: dict) -> None:
+    # NOTE: non-atomic — a power loss mid-write can corrupt the file.
+    # Will switch to a temp-file swap in v0.3 after a tester reports it.
+    user_path(data["username"]).write_text(json.dumps(data, indent=2))
+
+
 app = Flask(__name__)
-app.secret_key = "v0.1-dev-only"
+app.secret_key = "v0.2-dev-only"
 
 MOCK_TASKS = [
     {"name": "Software Eng Folio Submission", "subject": "SE",   "due": "2026-05-29",
