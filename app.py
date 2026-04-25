@@ -22,6 +22,7 @@ job once the package is split):
     }
 """
 
+import hashlib
 import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -31,6 +32,11 @@ from flask import Flask, redirect, render_template, request, session, url_for
 
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
+
+# Shared salt across all accounts for this prototype. It's a security smell —
+# two users with the same password get the same hash, so a leak is rainbow-
+# attackable. Flagged in the v0.2 release notes; per-user salt lands in v0.3.
+GLOBAL_SALT = "optima-prototype-salt"
 
 # Seeded into a fresh account so a tester has something to react to. The
 # planning doc lists "client picks their own" as a v0.3 requirement.
@@ -57,6 +63,10 @@ def save_user(data: dict) -> None:
     # NOTE: non-atomic — a power loss mid-write can corrupt the file.
     # Will switch to a temp-file swap in v0.3 after a tester reports it.
     user_path(data["username"]).write_text(json.dumps(data, indent=2))
+
+
+def hash_password(plain: str) -> str:
+    return hashlib.sha256((GLOBAL_SALT + plain).encode()).hexdigest()
 
 
 app = Flask(__name__)
