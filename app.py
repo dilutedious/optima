@@ -72,15 +72,6 @@ def hash_password(plain: str) -> str:
 app = Flask(__name__)
 app.secret_key = "v0.2-dev-only"
 
-MOCK_TASKS = [
-    {"name": "Software Eng Folio Submission", "subject": "SE",   "due": "2026-05-29",
-     "weighting": 30, "hours": 12, "score": 9999, "colour": "#7B68EE", "crit": True},
-    {"name": "Maths Topic Test",              "subject": "Maths","due": "2026-05-22",
-     "weighting": 25, "hours": 6,  "score": 50,   "colour": "#4C8FE5", "crit": False},
-    {"name": "English Essay Draft",           "subject": "Eng",  "due": "2026-05-30",
-     "weighting": 15, "hours": 8,  "score": 12.5, "colour": "#E5764C", "crit": False},
-]
-
 
 @app.route("/")
 def splash():
@@ -90,17 +81,42 @@ def splash():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        # No validation yet — just stash the username and go.
-        session["user"] = request.form.get("username") or "demo"
+        u = (request.form.get("username") or "").strip()
+        pw = request.form.get("password") or ""
+        user = load_user(u)
+        if user is None or user["password_hash"] != hash_password(pw):
+            return render_template("login.html", error="Wrong username or password.")
+        session["user"] = u
         return redirect(url_for("dashboard"))
-    return render_template("login.html")
+    return render_template("login.html", error=None)
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        u = (request.form.get("username") or "").strip()
+        pw = request.form.get("password") or ""
+        if user_path(u).exists():
+            return render_template("signup.html", error="Username already taken.")
+        save_user({
+            "username": u,
+            "password_hash": hash_password(pw),
+            "subjects": list(DEFAULT_SUBJECTS),
+            "assignments": [],
+            "wake_time": 7.0,
+            "bed_time": 22.0,
+        })
+        session["user"] = u
+        return redirect(url_for("dashboard"))
+    return render_template("signup.html", error=None)
 
 
 @app.route("/dashboard")
 def dashboard():
     if "user" not in session:
         return redirect(url_for("login"))
-    return render_template("dashboard.html", user=session["user"], tasks=MOCK_TASKS)
+    user = load_user(session["user"])
+    return render_template("dashboard.html", user=user["username"], tasks=user["assignments"])
 
 
 @app.route("/logout")

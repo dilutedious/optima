@@ -49,3 +49,4 @@ h1 { margin: 0 0 4px; }
 .task .pri { font-weight: 700; }
 .task .right { text-align: right; }
 .task .crit { display: inline-block; background: #d64545; color: #fff; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin-left: 6px; letter-spacing: 0.08em; }
+.error { background: #fdecec; color: #8d1f1f; padding: 8px 12px; border-radius: 8px; margin: 12px 0; font-size: 13px; }
