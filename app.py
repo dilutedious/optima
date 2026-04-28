@@ -69,6 +69,15 @@ def hash_password(plain: str) -> str:
     return hashlib.sha256((GLOBAL_SALT + plain).encode()).hexdigest()
 
 
+def priority(weight: float, days: int) -> float:
+    """Planning-doc formula. Anything inside the critical window jumps to
+    999 so a 'due tomorrow' task can't be out-ranked by a heavier task with
+    weeks of runway."""
+    if days <= 3:
+        return 999.0
+    return (weight * 10) / max(days, 1)
+
+
 app = Flask(__name__)
 app.secret_key = "v0.2-dev-only"
 
@@ -116,7 +125,15 @@ def dashboard():
     if "user" not in session:
         return redirect(url_for("login"))
     user = load_user(session["user"])
-    return render_template("dashboard.html", user=user["username"], tasks=user["assignments"])
+    today = date.today()
+    ranked = []
+    for a in user["assignments"]:
+        due = datetime.strptime(a["due_date"], "%Y-%m-%d").date()
+        a["days"] = (due - today).days
+        a["score"] = priority(a["weighting"], a["days"])
+        ranked.append(a)
+    ranked.sort(key=lambda a: -a["score"])
+    return render_template("dashboard.html", user=user, ranked=ranked)
 
 
 @app.route("/logout")
