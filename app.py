@@ -78,6 +78,44 @@ def priority(weight: float, days: int) -> float:
     return (weight * 10) / max(days, 1)
 
 
+def generate_schedule(user: dict, days: list) -> dict:
+    """Greedy first cut: rank assignments by priority, then walk forward
+    day by day, dropping 30-120 minute study blocks into the morning of
+    each day with a 30-min break between sessions.
+
+    KNOWN BUG (raised in round 2): two tasks due the same day will stack
+    on top of each other because nothing tracks already-placed class
+    periods yet. Conflict resolver is a v0.3 job.
+    """
+    today = date.today()
+    ranked = []
+    for a in user["assignments"]:
+        due = datetime.strptime(a["due_date"], "%Y-%m-%d").date()
+        a["score"] = priority(a["weighting"], (due - today).days)
+        ranked.append(a)
+    ranked.sort(key=lambda a: -a["score"])
+
+    blocks_per_day = {d.isoformat(): [] for d in days}
+    cursor = {d.isoformat(): user["wake_time"] + 1.0 for d in days}
+    for a in ranked:
+        remaining = a["hours_required"]
+        i = 0
+        while remaining > 0 and i < len(days):
+            d = days[i].isoformat()
+            start = cursor[d]
+            length = min(2.0, remaining, user["bed_time"] - start)
+            if length < 0.5:        # not enough room left today
+                i += 1
+                continue
+            blocks_per_day[d].append({
+                "name": a["name"], "start": start, "end": start + length,
+            })
+            cursor[d] = start + length + 0.5     # 30-min break after
+            remaining -= length
+            i += 1
+    return blocks_per_day
+
+
 app = Flask(__name__)
 app.secret_key = "v0.2-dev-only"
 
