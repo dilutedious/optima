@@ -174,6 +174,20 @@ def dashboard():
     return render_template("dashboard.html", user=user, ranked=ranked)
 
 
+@app.route("/weekly")
+def weekly():
+    if "user" not in session:
+        return redirect(url_for("login"))
+    user = load_user(session["user"])
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())
+    days = [monday + timedelta(days=i) for i in range(7)]
+    blocks = generate_schedule(user, days)
+    return render_template("weekly.html",
+                           user=user, days=days, blocks=blocks,
+                           hours=list(range(7, 23)))
+
+
 @app.route("/logout")
 def logout():
     session.clear()
