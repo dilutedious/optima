@@ -171,7 +171,19 @@ def dashboard():
         a["score"] = priority(a["weighting"], a["days"])
         ranked.append(a)
     ranked.sort(key=lambda a: -a["score"])
-    return render_template("dashboard.html", user=user, ranked=ranked)
+    # Crude cushion: workload vs awake hours in the next 14 days, with a
+    # placeholder 8h/day reserved for classes/meals. Will get derived from
+    # real constraints in v0.3 (a tester already flagged "8h is wrong").
+    total_workload = sum(a["hours_required"] for a in ranked)
+    awake_per_day = user["bed_time"] - user["wake_time"]
+    free_per_day = max(0.0, awake_per_day - 8.0)
+    total_free = free_per_day * 14
+    cushion = total_free / total_workload if total_workload else 1.0
+    return render_template("dashboard.html",
+                           user=user, ranked=ranked,
+                           total_workload=total_workload,
+                           total_free=total_free,
+                           cushion=cushion)
 
 
 @app.route("/weekly")
