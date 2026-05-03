@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Sign up — Optima</title>
+<link rel="stylesheet" href="/static/style.css"></head>
+<body class="auth-page">
+  <form class="card" method="post" action="/signup">
+    <div class="logo small">○</div>
+    <h1>Create account</h1>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <label>Username</label>
+    <input type="text" name="username" placeholder="username" required autofocus>
+    <label>Password</label>
+    <input type="password" name="password" placeholder="password" required>
+    <button class="btn full">Create account</button>
+    <p class="muted small center mt12">Already have one? <a href="/login">Sign in</a></p>
+  </form>
+</body></html>
