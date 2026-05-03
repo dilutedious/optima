@@ -186,6 +186,26 @@ def dashboard():
                            cushion=cushion)
 
 
+@app.route("/task/new", methods=["GET", "POST"])
+def new_task():
+    if "user" not in session:
+        return redirect(url_for("login"))
+    user = load_user(session["user"])
+    if request.method == "POST":
+        nid = max((a["id"] for a in user["assignments"]), default=0) + 1
+        user["assignments"].append({
+            "id": nid,
+            "subject_id": int(request.form.get("subject_id", "1")),
+            "name": request.form["name"],
+            "due_date": request.form["due_date"],
+            "weighting": float(request.form["weighting"]),
+            "hours_required": float(request.form["hours_required"]),
+        })
+        save_user(user)
+        return redirect(url_for("dashboard"))
+    return render_template("task_form.html", user=user)
+
+
 @app.route("/weekly")
 def weekly():
     if "user" not in session:
