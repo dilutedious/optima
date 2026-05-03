@@ -1,33 +1,123 @@
 """
-Optima — Prototype v0.1
-Date: 2026-04-22
-Build status: Skeleton only.
+Optima — in-progress v0.2.
 
-Whats here:
-- Splash + login form (no real auth — any creds get you in)
-- Dashboard with three hard-coded mock tasks so I can show the layout to
-  testers before plumbing the real engine.
-- No JSON yet. No scheduler. No weekly/monthly views. Settings is just a
-  placeholder.
+Storage scaffold landed; auth + signup wiring follows in the next commits.
+Data shape for a user JSON (the seven domain objects from the planning
+document, expressed as nested dicts for now — dataclass refactor is a v0.3
+job once the package is split):
 
-Run:
-    python3 app.py
-Then open http://127.0.0.1:5050/
+    {
+      "username": str,
+      "password_hash": str,
+      "subjects":    [{"id": int, "name": str, "colour": str}, ...],
+      "constraints": [{"id": int, "name": str, "day_of_fortnight": int,
+                       "start_time": float, "end_time": float}, ...],
+      "assignments": [{"id": int, "name": str, "subject_id": int,
+                       "due_date": str, "weighting": float,
+                       "hours_required": float}, ...],
+      "schedule_blocks": [{"assignment_id": int, "date_iso": str,
+                            "start_time": float, "duration": float}, ...],
+      "wake_time": float,
+      "bed_time":  float,
+    }
 """
+
+import hashlib
+import json
+from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, session, url_for
 
-app = Flask(__name__)
-app.secret_key = "v0.1-dev-only"
 
-MOCK_TASKS = [
-    {"name": "Software Eng Folio Submission", "subject": "SE",   "due": "2026-05-29",
-     "weighting": 30, "hours": 12, "score": 9999, "colour": "#7B68EE", "crit": True},
-    {"name": "Maths Topic Test",              "subject": "Maths","due": "2026-05-22",
-     "weighting": 25, "hours": 6,  "score": 50,   "colour": "#4C8FE5", "crit": False},
-    {"name": "English Essay Draft",           "subject": "Eng",  "due": "2026-05-30",
-     "weighting": 15, "hours": 8,  "score": 12.5, "colour": "#E5764C", "crit": False},
+DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+# Shared salt across all accounts for this prototype. It's a security smell —
+# two users with the same password get the same hash, so a leak is rainbow-
+# attackable. Flagged in the v0.2 release notes; per-user salt lands in v0.3.
+GLOBAL_SALT = "optima-prototype-salt"
+
+# Seeded into a fresh account so a tester has something to react to. The
+# planning doc lists "client picks their own" as a v0.3 requirement.
+DEFAULT_SUBJECTS = [
+    {"id": 1, "name": "English",              "colour": "#E5764C"},
+    {"id": 2, "name": "Mathematics",          "colour": "#4C8FE5"},
+    {"id": 3, "name": "Software Engineering", "colour": "#7B68EE"},
 ]
+
+
+def user_path(u: str) -> Path:
+    safe = "".join(c for c in u if c.isalnum() or c in "._-@").lower()
+    return DATA_DIR / f"{safe}.json"
+
+
+def load_user(u: str):
+    p = user_path(u)
+    if not p.exists():
+        return None
+    return json.loads(p.read_text())
+
+
+def save_user(data: dict) -> None:
+    # NOTE: non-atomic — a power loss mid-write can corrupt the file.
+    # Will switch to a temp-file swap in v0.3 after a tester reports it.
+    user_path(data["username"]).write_text(json.dumps(data, indent=2))
+
+
+def hash_password(plain: str) -> str:
+    return hashlib.sha256((GLOBAL_SALT + plain).encode()).hexdigest()
+
+
+def priority(weight: float, days: int) -> float:
+    """Planning-doc formula. Anything inside the critical window jumps to
+    999 so a 'due tomorrow' task can't be out-ranked by a heavier task with
+    weeks of runway."""
+    if days <= 3:
+        return 999.0
+    return (weight * 10) / max(days, 1)
+
+
+def generate_schedule(user: dict, days: list) -> dict:
+    """Greedy first cut: rank assignments by priority, then walk forward
+    day by day, dropping 30-120 minute study blocks into the morning of
+    each day with a 30-min break between sessions.
+
+    KNOWN BUG (raised in round 2): two tasks due the same day will stack
+    on top of each other because nothing tracks already-placed class
+    periods yet. Conflict resolver is a v0.3 job.
+    """
+    today = date.today()
+    ranked = []
+    for a in user["assignments"]:
+        due = datetime.strptime(a["due_date"], "%Y-%m-%d").date()
+        a["score"] = priority(a["weighting"], (due - today).days)
+        ranked.append(a)
+    ranked.sort(key=lambda a: -a["score"])
+
+    blocks_per_day = {d.isoformat(): [] for d in days}
+    cursor = {d.isoformat(): user["wake_time"] + 1.0 for d in days}
+    for a in ranked:
+        remaining = a["hours_required"]
+        i = 0
+        while remaining > 0 and i < len(days):
+            d = days[i].isoformat()
+            start = cursor[d]
+            length = min(2.0, remaining, user["bed_time"] - start)
+            if length < 0.5:        # not enough room left today
+                i += 1
+                continue
+            blocks_per_day[d].append({
+                "name": a["name"], "start": start, "end": start + length,
+            })
+            cursor[d] = start + length + 0.5     # 30-min break after
+            remaining -= length
+            i += 1
+    return blocks_per_day
+
+
+app = Flask(__name__)
+app.secret_key = "v0.2-dev-only"
 
 
 @app.route("/")
@@ -38,17 +128,96 @@ def splash():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        # No validation yet — just stash the username and go.
-        session["user"] = request.form.get("username") or "demo"
+        u = (request.form.get("username") or "").strip()
+        pw = request.form.get("password") or ""
+        user = load_user(u)
+        if user is None or user["password_hash"] != hash_password(pw):
+            return render_template("login.html", error="Wrong username or password.")
+        session["user"] = u
         return redirect(url_for("dashboard"))
-    return render_template("login.html")
+    return render_template("login.html", error=None)
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        u = (request.form.get("username") or "").strip()
+        pw = request.form.get("password") or ""
+        if user_path(u).exists():
+            return render_template("signup.html", error="Username already taken.")
+        save_user({
+            "username": u,
+            "password_hash": hash_password(pw),
+            "subjects": list(DEFAULT_SUBJECTS),
+            "assignments": [],
+            "wake_time": 7.0,
+            "bed_time": 22.0,
+        })
+        session["user"] = u
+        return redirect(url_for("dashboard"))
+    return render_template("signup.html", error=None)
 
 
 @app.route("/dashboard")
 def dashboard():
     if "user" not in session:
         return redirect(url_for("login"))
-    return render_template("dashboard.html", user=session["user"], tasks=MOCK_TASKS)
+    user = load_user(session["user"])
+    today = date.today()
+    ranked = []
+    for a in user["assignments"]:
+        due = datetime.strptime(a["due_date"], "%Y-%m-%d").date()
+        a["days"] = (due - today).days
+        a["score"] = priority(a["weighting"], a["days"])
+        ranked.append(a)
+    ranked.sort(key=lambda a: -a["score"])
+    # Crude cushion: workload vs awake hours in the next 14 days, with a
+    # placeholder 8h/day reserved for classes/meals. Will get derived from
+    # real constraints in v0.3 (a tester already flagged "8h is wrong").
+    total_workload = sum(a["hours_required"] for a in ranked)
+    awake_per_day = user["bed_time"] - user["wake_time"]
+    free_per_day = max(0.0, awake_per_day - 8.0)
+    total_free = free_per_day * 14
+    cushion = total_free / total_workload if total_workload else 1.0
+    return render_template("dashboard.html",
+                           user=user, ranked=ranked,
+                           total_workload=total_workload,
+                           total_free=total_free,
+                           cushion=cushion)
+
+
+@app.route("/task/new", methods=["GET", "POST"])
+def new_task():
+    if "user" not in session:
+        return redirect(url_for("login"))
+    user = load_user(session["user"])
+    if request.method == "POST":
+        nid = max((a["id"] for a in user["assignments"]), default=0) + 1
+        user["assignments"].append({
+            "id": nid,
+            "subject_id": int(request.form.get("subject_id", "1")),
+            "name": request.form["name"],
+            "due_date": request.form["due_date"],
+            "weighting": float(request.form["weighting"]),
+            "hours_required": float(request.form["hours_required"]),
+        })
+        save_user(user)
+        return redirect(url_for("dashboard"))
+    return render_template("task_form.html", user=user)
+
+
+@app.route("/weekly")
+def weekly():
+    if "user" not in session:
+        return redirect(url_for("login"))
+    user = load_user(session["user"])
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())
+    days = [monday + timedelta(days=i) for i in range(7)]
+    blocks = generate_schedule(user, days)
+    return render_template("weekly.html",
+                           user=user, days=days, blocks=blocks,
+                           hours=list(range(7, 23)))
 
 
 @app.route("/logout")

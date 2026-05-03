@@ -5,6 +5,7 @@
     <div class="logo small">○</div>
     <h1>Create account</h1>
     <p class="sub">No email needed. Just pick a name and a password.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <label>Username</label>
     <input type="text" name="username" placeholder="username" required autofocus>
     <label>Password</label>

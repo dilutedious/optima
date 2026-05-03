@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Weekly — Optima</title>
+<link rel="stylesheet" href="/static/style.css"></head>
+<body>
+  <aside class="sidebar">
+    <a class="logo" href="/dashboard">○</a>
+    <a class="nav" href="/dashboard">▦</a>
+    <a class="nav active" href="/weekly">📅</a>
+    <a class="nav" href="#">▣</a>
+    <a class="nav" href="#">⚙</a>
+    <a class="nav" href="/logout">↩</a>
+  </aside>
+  <main class="content">
+    <h1>Weekly view</h1>
+    <p class="muted">Greedy schedule across the next 7 days.</p>
+    <div class="week">
+      <div class="head"></div>
+      {% for d in days %}<div class="head">{{ d.strftime('%a %d') }}</div>{% endfor %}
+      <div>
+        {% for h in hours %}<div class="hourlbl">{{ '%02d:00'|format(h) }}</div>{% endfor %}
+      </div>
+      {% for d in days %}
+      <div class="col">
+        {% for h in hours %}<div class="hr"></div>{% endfor %}
+        {% for b in blocks.get(d.isoformat(), []) %}
+          <div class="block"
+               style="top:{{ ((b.start - hours[0]) * 48)|round(0,'floor') }}px;
+                      height:{{ ((b.end - b.start) * 48)|round(0,'floor') }}px;">
+            <strong>{{ b.name }}</strong>
+            <div class="small">{{ '%02d:%02d'|format(b.start|int, ((b.start - (b.start|int))*60)|int) }}–{{ '%02d:%02d'|format(b.end|int, ((b.end - (b.end|int))*60)|int) }}</div>
+          </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    <p class="muted small mt12">Known issue: blocks for two same-day tasks can overlap. Fixed in v0.3.</p>
+  </main>
+</body></html>

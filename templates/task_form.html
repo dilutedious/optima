@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Add task — Optima</title>
+<link rel="stylesheet" href="/static/style.css"></head>
+<body>
+  <aside class="sidebar">
+    <a class="logo" href="/dashboard">○</a>
+    <a class="nav" href="/dashboard">▦</a>
+    <a class="nav" href="/weekly">📅</a>
+    <a class="nav" href="/logout">↩</a>
+  </aside>
+  <main class="content">
+    <h1>Add task</h1>
+    <form method="post" class="card" style="max-width: 600px;">
+      <label>Name</label>
+      <input type="text" name="name" required>
+      <label>Subject</label>
+      <select name="subject_id">
+        {% for s in user.subjects %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+      </select>
+      <label>Due date</label>
+      <input type="date" name="due_date" required>
+      <label>Weighting (%)</label>
+      <input type="number" name="weighting" min="0" max="100" step="0.5" value="20" required>
+      <label>Hours required</label>
+      <input type="number" name="hours_required" min="0.5" step="0.5" value="6" required>
+      <div class="row spread mt12">
+        <a class="btn ghost" href="/dashboard">Cancel</a>
+        <button class="btn">Save</button>
+      </div>
+    </form>
+  </main>
+</body></html>
