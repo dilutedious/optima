@@ -10,7 +10,7 @@ from flask import (
     Flask, redirect, render_template, request, session, url_for,
 )
 
-from .auth import hash_password, verify_password
+from .auth import generate_salt, hash_password, verify_password
 from .models import Assignment, Subject, User
 from .priority import rank_assignments
 from .scheduler import generate_schedule, calculate_cushion
@@ -44,7 +44,7 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             u = (request.form.get("username") or "").strip()
             pw = request.form.get("password") or ""
             user = storage.load_user(u)
-            if user is None or not verify_password(pw, user.password_hash):
+            if user is None or not verify_password(pw, user.salt, user.password_hash):
                 return render_template("login.html",
                                        error="Wrong username or password.")
             session["user"] = u
@@ -59,9 +59,11 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             if storage.user_exists(u):
                 return render_template("signup.html",
                                        error="Username already taken.")
+            salt = generate_salt()
             user = User(
                 username=u,
-                password_hash=hash_password(pw),
+                password_hash=hash_password(pw, salt),
+                salt=salt,
                 subjects=_default_subjects(),
                 wake_time=7.0,
                 bed_time=22.0,
