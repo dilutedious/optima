@@ -11,6 +11,7 @@ from flask import (
 )
 
 from .auth import hash_password, verify_password
+from .models import Assignment, Subject, User
 from .priority import rank_assignments
 from .scheduler import generate_schedule, calculate_cushion
 from .storage import Storage
@@ -20,11 +21,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 
 
-DEFAULT_SUBJECTS = [
-    {"id": 1, "name": "English",              "colour": "#E5764C"},
-    {"id": 2, "name": "Mathematics",          "colour": "#4C8FE5"},
-    {"id": 3, "name": "Software Engineering", "colour": "#7B68EE"},
-]
+def _default_subjects() -> list[Subject]:
+    return [
+        Subject(id=1, name="English",              colour="#E5764C"),
+        Subject(id=2, name="Mathematics",          colour="#4C8FE5"),
+        Subject(id=3, name="Software Engineering", colour="#7B68EE"),
+    ]
 
 
 def create_app(data_dir: Optional[Path] = None) -> Flask:
@@ -42,7 +44,7 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             u = (request.form.get("username") or "").strip()
             pw = request.form.get("password") or ""
             user = storage.load_user(u)
-            if user is None or not verify_password(pw, user["password_hash"]):
+            if user is None or not verify_password(pw, user.password_hash):
                 return render_template("login.html",
                                        error="Wrong username or password.")
             session["user"] = u
@@ -57,14 +59,14 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             if storage.user_exists(u):
                 return render_template("signup.html",
                                        error="Username already taken.")
-            storage.save_user({
-                "username": u,
-                "password_hash": hash_password(pw),
-                "subjects": list(DEFAULT_SUBJECTS),
-                "assignments": [],
-                "wake_time": 7.0,
-                "bed_time": 22.0,
-            })
+            user = User(
+                username=u,
+                password_hash=hash_password(pw),
+                subjects=_default_subjects(),
+                wake_time=7.0,
+                bed_time=22.0,
+            )
+            storage.save_user(user)
             session["user"] = u
             return redirect(url_for("dashboard"))
         return render_template("signup.html", error=None)
@@ -79,7 +81,7 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
         if "user" not in session:
             return redirect(url_for("login"))
         user = storage.load_user(session["user"])
-        ranked = rank_assignments(user["assignments"], date.today())
+        ranked = rank_assignments(user.assignments, date.today())
         total_workload, total_free, cushion = calculate_cushion(
             user, date.today())
         return render_template("dashboard.html",
@@ -93,15 +95,15 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             return redirect(url_for("login"))
         user = storage.load_user(session["user"])
         if request.method == "POST":
-            nid = max((a["id"] for a in user["assignments"]), default=0) + 1
-            user["assignments"].append({
-                "id": nid,
-                "subject_id": int(request.form.get("subject_id", "1")),
-                "name": request.form["name"],
-                "due_date": request.form["due_date"],
-                "weighting": float(request.form["weighting"]),
-                "hours_required": float(request.form["hours_required"]),
-            })
+            nid = max((a.id for a in user.assignments), default=0) + 1
+            user.assignments.append(Assignment(
+                id=nid,
+                subject_id=int(request.form.get("subject_id", "1")),
+                name=request.form["name"],
+                due_date=request.form["due_date"],
+                weighting=float(request.form["weighting"]),
+                hours_required=float(request.form["hours_required"]),
+            ))
             storage.save_user(user)
             return redirect(url_for("dashboard"))
         return render_template("task_form.html", user=user)

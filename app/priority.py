@@ -5,26 +5,24 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import List
 
+from .models import Assignment
+
 
 CRITICAL_PRIORITY = 999.0
 URGENCY_THRESHOLD_DAYS = 3
 
 
-def priority_score(weighting: float, days_remaining: int) -> float:
-    if days_remaining <= URGENCY_THRESHOLD_DAYS:
+def priority_score(assignment: Assignment, today: date) -> float:
+    days = assignment.days_remaining(today)
+    if days <= URGENCY_THRESHOLD_DAYS:
         return CRITICAL_PRIORITY
-    return (weighting * 10) / max(days_remaining, 1)
+    return (assignment.weighting * 10) / max(days, 1)
 
 
-def rank_assignments(assignments: List[dict], today: date) -> List[dict]:
-    """Annotate each assignment with `days` + `score` and return them sorted
-    by score descending; tie-break by due_date so two equally-urgent tasks
-    get a stable order."""
-    out = []
+def rank_assignments(assignments: List[Assignment], today: date) -> List[Assignment]:
+    """Annotate score on each assignment and return them sorted by score
+    desc, then due date asc."""
     for a in assignments:
-        due = datetime.strptime(a["due_date"], "%Y-%m-%d").date()
-        a["days"] = (due - today).days
-        a["score"] = priority_score(a["weighting"], a["days"])
-        out.append(a)
-    out.sort(key=lambda a: (-a["score"], a["due_date"]))
-    return out
+        a.priority_score = priority_score(a, today)
+    return sorted(assignments,
+                  key=lambda a: (-a.priority_score, a.due_date))
