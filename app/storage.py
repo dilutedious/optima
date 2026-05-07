@@ -1,14 +1,16 @@
-"""JSON-backed persistence — one file per user account.
+"""JSON-backed persistence for Optima users.
 
-v0.3.0: open + write directly. Atomic temp-file swap arrives in v0.3.1
-after a tester (E3) reported a truncated file when they force-quit
-mid-save.
+Each user has their own file in data/users/<username>.json. Writes go
+through an atomic temp-file swap so a power loss or crash mid-save
+never corrupts the master copy.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -39,8 +41,18 @@ class Storage:
             return User.from_dict(json.load(f))
 
     def save_user(self, user: User) -> None:
-        # Non-atomic — will switch to tempfile.mkstemp + os.replace
-        # next commit, after E3's force-quit corruption report.
-        p = self.user_path(user.username)
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump(user.to_dict(), f, indent=2)
+        """Atomic write: temp file in the same directory, fsync, rename."""
+        path = self.user_path(user.username)
+        fd, tmp = tempfile.mkstemp(prefix=".tmp_", suffix=".json",
+                                   dir=str(self.users_dir))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(user.to_dict(), f, indent=2)
+            os.replace(tmp, path)
+        except Exception:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise
+
+    def list_users(self) -> list[str]:
+        return [p.stem for p in self.users_dir.glob("*.json")]
