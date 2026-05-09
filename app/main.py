@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +19,33 @@ from .storage import Storage
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
+
+
+def _build_month_grid(user: User, ref: date):
+    """Return (events_by_day, week_rows). Each row has 7 date|None cells.
+    Builds a 6-week grid starting from the Monday on or before the 1st."""
+    first = ref.replace(day=1)
+    grid_start = first - timedelta(days=first.weekday())
+    rows = []
+    cur = grid_start
+    for _ in range(6):
+        row = []
+        for _ in range(7):
+            row.append(cur if (cur.month == ref.month or
+                               (cur - first).days < 35) else None)
+            cur += timedelta(days=1)
+        rows.append(row)
+        if all(d is None or d.month != ref.month for d in rows[-1]):
+            rows.pop()
+            break
+    events = {}
+    for a in user.assignments:
+        events.setdefault(a.due_date, []).append({
+            "name": a.name,
+            "colour": (user.subject_by_id(a.subject_id).colour
+                       if user.subject_by_id(a.subject_id) else "#7B68EE"),
+        })
+    return events, rows
 
 
 def _default_subjects() -> list[Subject]:
@@ -109,6 +136,27 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             storage.save_user(user)
             return redirect(url_for("dashboard"))
         return render_template("task_form.html", user=user)
+
+    @app.route("/monthly")
+    def monthly():
+        if "user" not in session:
+            return redirect(url_for("login"))
+        user = storage.load_user(session["user"])
+        ref_str = request.args.get("month")
+        ref = (datetime.strptime(ref_str, "%Y-%m").date()
+               if ref_str else date.today().replace(day=1))
+        grid, weeks = _build_month_grid(user, ref)
+        prev_ref = (ref.replace(day=1) - timedelta(days=1)).replace(day=1)
+        next_year = ref.year + (1 if ref.month == 12 else 0)
+        next_month = 1 if ref.month == 12 else ref.month + 1
+        next_ref = ref.replace(year=next_year, month=next_month, day=1)
+        return render_template("monthly.html",
+                               user=user, ref=ref,
+                               grid=grid, weeks=weeks,
+                               prev_month=prev_ref.strftime("%Y-%m"),
+                               next_month=next_ref.strftime("%Y-%m"),
+                               today=date.today(),
+                               subjects_by_id={s.id: s for s in user.subjects})
 
     @app.route("/weekly")
     def weekly():
