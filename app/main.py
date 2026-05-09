@@ -11,7 +11,7 @@ from flask import (
 )
 
 from .auth import generate_salt, hash_password, verify_password
-from .models import Assignment, Subject, User
+from .models import Assignment, Constraint, Subject, User
 from .priority import rank_assignments
 from .scheduler import generate_schedule, calculate_cushion
 from .storage import Storage
@@ -136,6 +136,68 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             storage.save_user(user)
             return redirect(url_for("dashboard"))
         return render_template("task_form.html", user=user)
+
+    @app.route("/preferences", methods=["GET", "POST"])
+    def preferences():
+        if "user" not in session:
+            return redirect(url_for("login"))
+        user = storage.load_user(session["user"])
+        if request.method == "POST":
+            p = user.preferences
+            p.theme = "dark" if request.form.get("theme") == "dark" else "light"
+            p.notifications = bool(request.form.get("notifications"))
+            user.wake_time = float(request.form.get("wake_time", user.wake_time))
+            user.bed_time = float(request.form.get("bed_time", user.bed_time))
+            storage.save_user(user)
+            return redirect(url_for("preferences"))
+        return render_template("preferences.html", user=user)
+
+    @app.route("/subjects/new", methods=["POST"])
+    def subjects_new():
+        if "user" not in session:
+            return redirect(url_for("login"))
+        user = storage.load_user(session["user"])
+        nid = max((s.id for s in user.subjects), default=0) + 1
+        user.subjects.append(Subject(id=nid,
+                                     name=request.form["name"],
+                                     colour=request.form.get("colour", "#7B68EE")))
+        storage.save_user(user)
+        return redirect(url_for("preferences"))
+
+    @app.route("/subjects/<int:subject_id>/delete", methods=["POST"])
+    def subjects_delete(subject_id: int):
+        if "user" not in session:
+            return redirect(url_for("login"))
+        user = storage.load_user(session["user"])
+        user.subjects = [s for s in user.subjects if s.id != subject_id]
+        storage.save_user(user)
+        return redirect(url_for("preferences"))
+
+    @app.route("/constraints/new", methods=["POST"])
+    def constraints_new():
+        if "user" not in session:
+            return redirect(url_for("login"))
+        user = storage.load_user(session["user"])
+        nid = max((c.id for c in user.constraints), default=0) + 1
+        user.constraints.append(Constraint(
+            id=nid,
+            name=request.form["name"],
+            subject_id=int(request.form["subject_id"]) if request.form.get("subject_id") else None,
+            day_of_fortnight=int(request.form["day_of_fortnight"]),
+            start_time=float(request.form["start_time"]),
+            end_time=float(request.form["end_time"]),
+        ))
+        storage.save_user(user)
+        return redirect(url_for("preferences"))
+
+    @app.route("/constraints/<int:cid>/delete", methods=["POST"])
+    def constraints_delete(cid: int):
+        if "user" not in session:
+            return redirect(url_for("login"))
+        user = storage.load_user(session["user"])
+        user.constraints = [c for c in user.constraints if c.id != cid]
+        storage.save_user(user)
+        return redirect(url_for("preferences"))
 
     @app.route("/monthly")
     def monthly():
