@@ -1,8 +1,8 @@
 """JSON-backed persistence for Optima users.
 
-Each user has their own file in data/users/<username>.json. Writes go
-through an atomic temp-file swap so a power loss or crash mid-save
-never corrupts the master copy.
+Each user has their own file in data/users/<username>.json. Writes go through
+an atomic temp-file swap so a power loss or crash mid-save never corrupts the
+master copy.
 """
 
 from __future__ import annotations
@@ -34,17 +34,17 @@ class Storage:
         return self.user_path(username).exists()
 
     def load_user(self, username: str) -> Optional[User]:
-        p = self.user_path(username)
-        if not p.exists():
+        path = self.user_path(username)
+        if not path.exists():
             return None
-        with open(p, "r", encoding="utf-8") as f:
-            return User.from_dict(json.load(f))
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return User.from_dict(data)
 
     def save_user(self, user: User) -> None:
-        """Atomic write: temp file in the same directory, fsync, rename."""
         path = self.user_path(user.username)
-        fd, tmp = tempfile.mkstemp(prefix=".tmp_", suffix=".json",
-                                   dir=str(self.users_dir))
+        # Atomic write: temp file in the same directory, then rename.
+        fd, tmp = tempfile.mkstemp(prefix=".tmp_", suffix=".json", dir=str(self.users_dir))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(user.to_dict(), f, indent=2)

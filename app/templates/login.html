@@ -1,15 +1,32 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Sign in — Optima</title>
-<link rel="stylesheet" href="/static/style.css"></head>
-<body class="auth-page">
-  <form class="card" method="post" action="/login">
-    <div class="logo small">○</div>
+{% extends "base.html" %}
+{% block title %}Optima — Sign in{% endblock %}
+{% block layout %}
+<div class="center-screen">
+  <form class="auth-card" method="post" action="{{ url_for('login') }}">
+    <div class="logo-row">
+      <div class="logo-big" style="width:56px;height:56px;border-radius:14px;background:var(--primary);color:#fff;font-size:24px;display:grid;place-items:center;">○</div>
+    </div>
     <h1>Welcome back</h1>
     <p class="sub">Sign in to sync your schedule.</p>
-    {% if error %}<div class="error">{{ error }}</div>{% endif %}
-    <label>Username</label>
-    <input type="text" name="username" placeholder="username" required autofocus>
-    <label>Password</label>
-    <input type="password" name="password" placeholder="password" required>
-    <button class="btn full">Sign in</button>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flashes">
+          {% for cat, msg in messages %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    <div class="form-row">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" value="{{ username }}" placeholder="username" autocomplete="username" required autofocus>
+    </div>
+    <div class="form-row">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="btn" style="width:100%;justify-content:center;">Sign in</button>
+    <p class="tiny muted" style="text-align:center;margin-top:14px;">
+      No account? <a href="{{ url_for('signup') }}">Create one</a>
+    </p>
   </form>
-</body></html>
+</div>
+{% endblock %}

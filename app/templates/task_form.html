@@ -1,31 +1,50 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Add task — Optima</title>
-<link rel="stylesheet" href="/static/style.css"></head>
-<body>
-  <aside class="sidebar">
-    <a class="logo" href="/dashboard">○</a>
-    <a class="nav" href="/dashboard">▦</a>
-    <a class="nav" href="/weekly">📅</a>
-    <a class="nav" href="/logout">↩</a>
-  </aside>
-  <main class="content">
-    <h1>Add task</h1>
-    <form method="post" class="card" style="max-width: 600px;">
-      <label>Name</label>
-      <input type="text" name="name" required>
-      <label>Subject</label>
-      <select name="subject_id">
-        {% for s in user.subjects %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
-      </select>
-      <label>Due date</label>
-      <input type="date" name="due_date" required>
-      <label>Weighting (%)</label>
-      <input type="number" name="weighting" min="0" max="100" step="0.5" value="20" required>
-      <label>Hours required</label>
-      <input type="number" name="hours_required" min="0.5" step="0.5" value="6" required>
-      <div class="row spread mt12">
-        <a class="btn ghost" href="/dashboard">Cancel</a>
-        <button class="btn">Save</button>
+{% extends "base.html" %}
+{% set active = 'dashboard' %}
+{% block title %}{{ 'Edit' if task else 'Add' }} task — Optima{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ 'Edit' if task else 'Add' }} task</h1></div>
+
+<div class="card" style="max-width: 720px;">
+  <form method="post">
+    <div class="form-grid">
+      <div class="form-row">
+        <label>Name</label>
+        <input type="text" name="name" value="{{ task.name if task else '' }}" required autofocus>
       </div>
-    </form>
-  </main>
-</body></html>
+      <div class="form-row">
+        <label>Subject</label>
+        <select name="subject_id">
+          {% for s in user.subjects %}
+            <option value="{{ s.id }}" {% if task and task.subject_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Due date</label>
+        <input type="date" name="due_date" value="{{ task.due_date if task else '' }}" required>
+      </div>
+      <div class="form-row">
+        <label>Weighting (%)</label>
+        <input type="number" name="weighting" min="0" max="100" step="0.5" value="{{ task.weighting if task else 20 }}" required>
+      </div>
+      <div class="form-row">
+        <label>Hours required</label>
+        <input type="number" name="hours_required" min="0.5" max="200" step="0.5" value="{{ task.hours_required if task else 8 }}" required>
+      </div>
+      {% if task %}
+      <div class="form-row">
+        <label>Completion %</label>
+        <input type="number" name="completion_percent" min="0" max="1" step="0.05" value="{{ task.completion_percent }}">
+      </div>
+      {% endif %}
+    </div>
+    <div class="row mt16" style="justify-content:flex-end; gap:8px;">
+      <a class="btn ghost" href="{{ url_for('dashboard') }}">Cancel</a>
+      {% if task %}
+      <button name="action" value="delete" class="btn danger" onclick="return confirm('Delete this task?');">Delete</button>
+      {% endif %}
+      <button class="btn">{{ 'Save changes' if task else 'Create task' }}</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

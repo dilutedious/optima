@@ -1,18 +1,36 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Sign up — Optima</title>
-<link rel="stylesheet" href="/static/style.css"></head>
-<body class="auth-page">
-  <form class="card" method="post" action="/signup">
-    <div class="logo small">○</div>
-    <h1>Create account</h1>
-    <p class="sub">No email needed. Just pick a name and a password.</p>
-    {% if error %}<div class="error">{{ error }}</div>{% endif %}
-    <label>Username</label>
-    <input type="text" name="username" placeholder="username" required autofocus>
-    <label>Password</label>
-    <input type="password" name="password" placeholder="password" required>
-    <label>Confirm password</label>
-    <input type="password" name="confirm" placeholder="password again" required>
-    <button class="btn full">Sign up</button>
-    <p class="muted small">Already have an account? <a href="/login">Sign in</a></p>
+{% extends "base.html" %}
+{% block title %}Optima — Create account{% endblock %}
+{% block layout %}
+<div class="center-screen">
+  <form class="auth-card" method="post" action="{{ url_for('signup') }}">
+    <div class="logo-row">
+      <div class="logo-big" style="width:56px;height:56px;border-radius:14px;background:var(--primary);color:#fff;font-size:24px;display:grid;place-items:center;">○</div>
+    </div>
+    <h1>Create your account</h1>
+    <p class="sub">It only takes a second.</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flashes">
+          {% for cat, msg in messages %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    <div class="form-row">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" value="{{ username }}" placeholder="username" autocomplete="username" required autofocus>
+    </div>
+    <div class="form-row">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="new-password" required>
+    </div>
+    <div class="form-row">
+      <label for="confirm">Confirm password</label>
+      <input type="password" id="confirm" name="confirm" autocomplete="new-password" required>
+    </div>
+    <button type="submit" class="btn" style="width:100%;justify-content:center;">Create account</button>
+    <p class="tiny muted" style="text-align:center;margin-top:14px;">
+      Already have one? <a href="{{ url_for('login') }}">Sign in</a>
+    </p>
   </form>
-</body></html>
+</div>
+{% endblock %}

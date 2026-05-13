@@ -1,8 +1,15 @@
-"""Launcher — `python run.py`."""
+#!/usr/bin/env python3
+"""Launch Optima.
 
-from app.main import create_app
+Run from the project root:
+    python3 run.py            # native desktop window (pywebview)
+    python3 run.py --browser  # open at http://127.0.0.1:5050 in your browser
 
+This shim only exists so users don't have to remember the
+`python3 -m app.main` invocation.
+"""
+
+from app.main import main
 
 if __name__ == "__main__":
-    app = create_app()
-    app.run(host="127.0.0.1", port=5050, debug=True)
+    raise SystemExit(main())
