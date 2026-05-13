@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Optima — Welcome{% endblock %}
+{% block body_class %}splash-page{% endblock %}
+{% block layout %}
+<div class="splash-wrap" data-next="{{ url_for('login') }}">
+  <div class="splash">
+    <div class="logo-big" aria-hidden="true">○</div>
+    <h1>OPTIMA</h1>
+    <p>Automated Study Flow</p>
+    <div class="actions">
+      <a class="btn primary" href="{{ url_for('login') }}">Sign in</a>
+      <a class="btn" href="{{ url_for('signup') }}">Create account</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

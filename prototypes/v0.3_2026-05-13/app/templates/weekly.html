@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% set active = 'weekly' %}
+{% block title %}Weekly — Optima{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Weekly view</h1>
+  <div class="meta">{{ days[0].strftime('%d %b') }} — {{ days[-1].strftime('%d %b %Y') }}</div>
+</div>
+<p class="page-sub">Classes are solid; study blocks are outlined.</p>
+
+<div class="week">
+  <div class="head"></div>
+  {% for d in days %}
+    <div class="head">{{ d.strftime('%a') }}<br><strong>{{ d.day }}</strong></div>
+  {% endfor %}
+
+  {# hour gutter #}
+  <div>
+    {% for h in hours %}
+      <div class="hour-label" style="height:48px;">{{ '%02d:00'|format(h) }}</div>
+    {% endfor %}
+  </div>
+
+  {# day columns #}
+  {% for d in days %}
+    <div class="day-col {% if d == today %}today{% endif %}"
+         style="height: {{ (hours|length) * 48 }}px; position: relative;">
+      {% for h in hours %}
+        <div class="hour-row" style="position:absolute; left:0; right:0; top:{{ loop.index0 * 48 }}px; height:48px;"></div>
+      {% endfor %}
+      {% set day_iso = d.isoformat() %}
+      {% for item in grid.get(day_iso, []) %}
+        {% set top = ((item.start - hours[0]) * 48)|round(0, 'floor') %}
+        {% set h = ((item.end - item.start) * 48)|round(0, 'floor') %}
+        <div class="row {% if item.kind == 'class' %}class-block{% else %}study-block{% endif %}"
+             style="top: {{ top }}px; height: {{ h }}px; background: {{ item.colour }};"
+             title="{{ item.name }} {{ '%02d:%02d'|format(item.start|int, ((item.start - (item.start|int))*60)|int) }}–{{ '%02d:%02d'|format(item.end|int, ((item.end - (item.end|int))*60)|int) }}">
+          <strong>{{ item.name }}</strong>
+          <div class="tiny">{{ '%02d:%02d'|format(item.start|int, ((item.start - (item.start|int))*60)|int) }}–{{ '%02d:%02d'|format(item.end|int, ((item.end - (item.end|int))*60)|int) }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endfor %}
+</div>
+
+<div class="card mt24">
+  <h2>Legend</h2>
+  <div class="row wrap gap8">
+    {% for s in user.subjects %}
+      <span class="subject-chip"><span class="dot" style="background: {{ s.colour }}"></span>{{ s.name }}</span>
+    {% endfor %}
+  </div>
+  <p class="tiny muted mt16">
+    Outlined blocks are auto-generated study sessions. Edit a task to change its hours or due date — the schedule will rebuild.
+  </p>
+</div>
+{% endblock %}
