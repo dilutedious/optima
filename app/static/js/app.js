@@ -59,3 +59,9 @@
     setTimeout(() => { window.location.href = next; }, 1500);
   }
 })();
+
+/* splash auto-redirect — v1.0 */
+if (document.body && document.body.classList.contains('splash')) {
+  setTimeout(() => { window.location.href = '/login'; }, 2000);
+  document.addEventListener('click', () => { window.location.href = '/login'; });
+}

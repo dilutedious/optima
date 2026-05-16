@@ -589,3 +589,13 @@ html[data-theme="dark"] .flash.ok    { background: #1a3a25; color: #c0eed1; bord
 */
 html[data-contrast="high"] { --text: #000; --bg: #fff; --primary: #2a1a9c; }
 html[data-focus="on"] :focus { outline: 3px solid var(--primary); outline-offset: 2px; }
+
+/* --- splash animation (v1.0 — Sat 16 May 2026) ---------------------------
+   Splash fades in over 600ms, holds 1.4s, then a JS redirect drops the user
+   on /login. The .splash-card animation lives here; the timer is in
+   static/js/app.js. */
+@keyframes splash-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.splash-card { animation: splash-in 600ms ease-out both; }
