@@ -65,3 +65,27 @@ if (document.body && document.body.classList.contains('splash')) {
   setTimeout(() => { window.location.href = '/login'; }, 2000);
   document.addEventListener('click', () => { window.location.href = '/login'; });
 }
+
+/* progress slider — saves to /api/tasks/<id>/progress without a reload */
+document.querySelectorAll('input[type="range"][data-progress-task]').forEach(slider => {
+  let timer = null;
+  slider.addEventListener('input', () => {
+    const tid = slider.dataset.progressTask;
+    const pct = slider.value;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      fetch(`/api/tasks/${tid}/progress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `completion_percent=${pct}`,
+      });
+    }, 250);
+  });
+});
+
+/* confirm prompts on every destructive form */
+document.querySelectorAll('form[data-confirm]').forEach(form => {
+  form.addEventListener('submit', (e) => {
+    if (!window.confirm(form.dataset.confirm)) { e.preventDefault(); }
+  });
+});
