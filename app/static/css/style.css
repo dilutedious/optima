@@ -599,3 +599,11 @@ html[data-focus="on"] :focus { outline: 3px solid var(--primary); outline-offset
   to   { opacity: 1; transform: none; }
 }
 .splash-card { animation: splash-in 600ms ease-out both; }
+
+/* --- print stylesheet (added during pre-submission bug sweep) ----------- */
+@media print {
+  .sidebar, .topbar { display: none; }
+  body, .content { background: #fff; color: #000; }
+  .card { border: 1px solid #ccc; box-shadow: none; }
+  a { color: #000; text-decoration: underline; }
+}
