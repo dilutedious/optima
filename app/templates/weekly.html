@@ -4,43 +4,154 @@
 {% block content %}
 <div class="page-header">
   <h1>Weekly view</h1>
-  <div class="meta">{{ days[0].strftime('%d %b') }} — {{ days[-1].strftime('%d %b %Y') }}</div>
+  <div class="meta">
+    <a class="btn ghost small" href="{{ url_for('weekly', week=prev_week) }}" title="Previous week">‹</a>
+    {{ days[0].strftime('%d %b') }} — {{ days[-1].strftime('%d %b %Y') }}
+    <a class="btn ghost small" href="{{ url_for('weekly', week=next_week) }}" title="Next week">›</a>
+  </div>
 </div>
-<p class="page-sub">Classes are solid; study blocks are outlined.</p>
+<p class="page-sub">
+  Click an empty slot to add an event · click an existing event to edit ·
+  shift-click to select multiple · drag selection to move · Delete to remove.
+</p>
 
-<div class="week">
+<div class="week-toolbar">
+  <div class="multi-status muted tiny" id="multiStatus">Nothing selected</div>
+  <div class="row gap8">
+    <button class="btn ghost small" id="btnDeselect" type="button" disabled>Deselect all</button>
+    <button class="btn danger small" id="btnDeleteSelected" type="button" disabled>Delete selected…</button>
+  </div>
+</div>
+
+{# The grid is rendered server-side as a skeleton; events are painted by JS
+   from the /api/events JSON response so create/edit/drag round-trips don't
+   require a full page reload. #}
+<div class="week week-editor"
+     id="weekGrid"
+     data-week-start="{{ week_start.isoformat() }}"
+     data-today="{{ today.isoformat() }}"
+     data-time-format="{{ user.preferences.time_format }}"
+     data-hour-start="{{ hours[0] }}"
+     data-hour-end="{{ hours[-1] + 1 }}"
+     data-snap-min="5">
   <div class="head"></div>
   {% for d in days %}
-    <div class="head">{{ d.strftime('%a') }}<br><strong>{{ d.day }}</strong></div>
+    <div class="head{% if d == today %} today{% endif %}">{{ d.strftime('%a') }}<br><strong>{{ d.day }}</strong></div>
   {% endfor %}
 
-  {# hour gutter #}
-  <div>
+  <div class="hour-gutter">
     {% for h in hours %}
-      <div class="hour-label" style="height:48px;">{{ '%02d:00'|format(h) }}</div>
+      <div class="hour-label">
+        <span data-hour="{{ h }}">{{ '%02d:00'|format(h) }}</span>
+      </div>
     {% endfor %}
   </div>
 
-  {# day columns #}
   {% for d in days %}
     <div class="day-col {% if d == today %}today{% endif %}"
-         style="height: {{ (hours|length) * 48 }}px; position: relative;">
+         data-date="{{ d.isoformat() }}"
+         style="height: {{ (hours|length) * 48 }}px;">
       {% for h in hours %}
-        <div class="hour-row" style="position:absolute; left:0; right:0; top:{{ loop.index0 * 48 }}px; height:48px;"></div>
-      {% endfor %}
-      {% set day_iso = d.isoformat() %}
-      {% for item in grid.get(day_iso, []) %}
-        {% set top = ((item.start - hours[0]) * 48)|round(0, 'floor') %}
-        {% set h = ((item.end - item.start) * 48)|round(0, 'floor') %}
-        <div class="row {% if item.kind == 'class' %}class-block{% else %}study-block{% endif %}"
-             style="top: {{ top }}px; height: {{ h }}px; background: {{ item.colour }};"
-             title="{{ item.name }} {{ '%02d:%02d'|format(item.start|int, ((item.start - (item.start|int))*60)|int) }}–{{ '%02d:%02d'|format(item.end|int, ((item.end - (item.end|int))*60)|int) }}">
-          <strong>{{ item.name }}</strong>
-          <div class="tiny">{{ '%02d:%02d'|format(item.start|int, ((item.start - (item.start|int))*60)|int) }}–{{ '%02d:%02d'|format(item.end|int, ((item.end - (item.end|int))*60)|int) }}</div>
-        </div>
+        <div class="hour-row" style="top:{{ loop.index0 * 48 }}px;"></div>
       {% endfor %}
     </div>
   {% endfor %}
+</div>
+
+{# Subject palette + initial server state. The script reads these via
+   document.getElementById(...).textContent and JSON.parses them. #}
+<script id="initialData" type="application/json">
+{
+  "subjects": [
+    {% for s in user.subjects %}{"id": {{ s.id }}, "name": {{ s.name|tojson }}, "colour": {{ s.colour|tojson }}}{{ "," if not loop.last }}{% endfor %}
+  ],
+  "kinds": [
+    {"value":"subject","label":"Subject"},
+    {"value":"extracurricular","label":"Extracurricular"},
+    {"value":"appointment","label":"Appointment"},
+    {"value":"study","label":"Study"},
+    {"value":"other","label":"Other"}
+  ],
+  "recurrences": [
+    {"value":"none","label":"Just this date"},
+    {"value":"daily","label":"Every day"},
+    {"value":"weekly","label":"Every week"},
+    {"value":"fortnightly","label":"Every 2 weeks"},
+    {"value":"monthly","label":"Every month"},
+    {"value":"yearly","label":"Every year"}
+  ],
+  "time_format": {{ user.preferences.time_format|tojson }}
+}
+</script>
+
+{# Modal scaffolding — the JS layer fills in the form fields and shows/hides. #}
+<div class="modal-backdrop" id="eventModal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="evTitle">
+    <header>
+      <h3 id="evTitle">New event</h3>
+      <button class="btn ghost small" type="button" id="evClose" aria-label="Close">×</button>
+    </header>
+    <form id="evForm">
+      <div class="form-grid">
+        <div class="form-row">
+          <label>Name</label>
+          <input type="text" name="name" required maxlength="120">
+        </div>
+        <div class="form-row">
+          <label>Type</label>
+          <select name="kind"></select>
+        </div>
+        <div class="form-row">
+          <label>Subject</label>
+          <select name="subject_id">
+            <option value="">— None —</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Repeats</label>
+          <select name="recurrence"></select>
+        </div>
+        <div class="form-row">
+          <label>Start</label>
+          <input type="text" name="start_display" placeholder="9:30am" required>
+          <input type="hidden" name="start_time">
+        </div>
+        <div class="form-row">
+          <label>End</label>
+          <input type="text" name="end_display" placeholder="10:30am" required>
+          <input type="hidden" name="end_time">
+        </div>
+        <div class="form-row">
+          <label>First occurrence</label>
+          <input type="date" name="anchor_date" required>
+        </div>
+        <div class="form-row">
+          <label class="row gap8" style="margin:0;">
+            <input type="checkbox" name="is_study_period">
+            <span>Study period (counts as free time)</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-errors" id="evErrors" hidden></div>
+      <footer class="row mt16" style="justify-content:space-between;">
+        <button type="button" class="btn danger" id="evDelete" hidden>Delete…</button>
+        <div class="row gap8">
+          <button type="button" class="btn ghost" id="evCancel">Cancel</button>
+          <button type="submit" class="btn">Save</button>
+        </div>
+      </footer>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="confirmModal" hidden>
+  <div class="modal-card small" role="dialog" aria-modal="true" aria-labelledby="cfTitle">
+    <header>
+      <h3 id="cfTitle">Confirm</h3>
+    </header>
+    <p id="cfBody" class="muted"></p>
+    <div class="row mt16 gap8" style="justify-content:flex-end; flex-wrap:wrap;" id="cfChoices"></div>
+  </div>
 </div>
 
 <div class="card mt24">
@@ -51,7 +162,18 @@
     {% endfor %}
   </div>
   <p class="tiny muted mt16">
-    Outlined blocks are auto-generated study sessions. Edit a task to change its hours or due date — the schedule will rebuild.
+    Dashed outlines are auto-generated study sessions and aren't editable here
+    — open the task to change its hours or due date.
   </p>
 </div>
 {% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/weekly.css') }}">
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/weekly.js') }}"></script>
+{% endblock %}
+
+{% block body_class %}has-weekly-editor{% endblock %}

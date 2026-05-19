@@ -22,6 +22,30 @@
         </div>
         <div class="pref-row">
           <div>
+            <div class="lbl">Time format</div>
+            <div class="desc">How times appear on the weekly view and elsewhere. Storage is always 24-hour decimals.</div>
+          </div>
+          <div class="theme-pick">
+            <label><input type="radio" name="time_format" value="24h" {% if user.preferences.time_format == '24h' %}checked{% endif %}><span>24-hour</span></label>
+            <label><input type="radio" name="time_format" value="12h" {% if user.preferences.time_format == '12h' %}checked{% endif %}><span>12-hour</span></label>
+          </div>
+        </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">High contrast</div>
+            <div class="desc">Boost contrast for readability.</div>
+          </div>
+          <label class="toggle"><input type="checkbox" name="high_contrast" {% if user.preferences.high_contrast %}checked{% endif %}><span class="slider"></span></label>
+        </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">Focus highlights (Tab)</div>
+            <div class="desc">Show vivid outline when navigating with Tab.</div>
+          </div>
+          <label class="toggle"><input type="checkbox" name="focus_highlights" {% if user.preferences.focus_highlights %}checked{% endif %}><span class="slider"></span></label>
+        </div>
+        <div class="pref-row">
+          <div>
             <div class="lbl">Notifications</div>
             <div class="desc">Reminders ahead of deadlines.</div>
           </div>
@@ -33,6 +57,25 @@
             <div class="desc">Persist changes as you make them.</div>
           </div>
           <label class="toggle"><input type="checkbox" name="auto_save" {% if user.preferences.auto_save %}checked{% endif %}><span class="slider"></span></label>
+        </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">Zoom</div>
+            <div class="desc">75–150%. Useful on small screens or for low-vision users.</div>
+          </div>
+          <div class="row">
+            <input type="number" name="zoom" min="75" max="150" step="5" value="{{ user.preferences.zoom }}" style="width:90px;">
+            <span class="muted tiny">%</span>
+          </div>
+        </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">Term start (Week A, Day 0)</div>
+            <div class="desc">Anchor date that fortnightly classes line up against. Existing events are not moved.</div>
+          </div>
+          <div class="row">
+            <input type="date" name="term_start" value="{{ user.term_start }}" style="width:170px;">
+          </div>
         </div>
         <div class="row mt16" style="justify-content:flex-end;">
           <button type="submit" class="btn">Save preferences</button>
@@ -70,56 +113,17 @@
 
   <div>
     <div class="card">
-      <h2>14-day Timetable</h2>
-      <p class="tiny muted">Add each class as a constraint. Day 0 = first day of Week A.</p>
+      <h2>Classes &amp; fixed events</h2>
+      <p class="tiny muted">
+        Classes, extracurriculars, and appointments are added straight on the
+        weekly view now — click an empty slot to drop a new event, click an
+        existing one to edit, drag to move, or shift-click to select multiple
+        at a time.
+      </p>
+      <a class="btn" href="{{ url_for('weekly') }}">Open weekly editor</a>
       {% if user.constraints %}
-        {% for c in user.constraints %}
-          {% set subj = user.subject_by_id(c.subject_id) if c.subject_id else None %}
-          <div class="constraint-row">
-            <span class="day">D{{ c.day_of_fortnight }}</span>
-            <span><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background: {{ subj.colour if subj else '#9aa0a6' }};margin-right:6px;"></span>{{ c.name }}{% if c.is_study_period %} <span class="tiny muted">(study)</span>{% endif %}</span>
-            <span class="tiny muted">{{ '%02d:%02d'|format(c.start_time|int, ((c.start_time - (c.start_time|int))*60)|int) }}</span>
-            <span class="tiny muted">{{ '%02d:%02d'|format(c.end_time|int, ((c.end_time - (c.end_time|int))*60)|int) }}</span>
-            <span class="tiny muted">{{ subj.name if subj else '—' }}</span>
-            <form method="post" action="{{ url_for('delete_constraint', idx=loop.index0) }}"><button class="btn ghost small">×</button></form>
-          </div>
-        {% endfor %}
-      {% else %}
-        <p class="muted tiny">No classes added yet.</p>
+        <p class="tiny muted mt16">{{ user.constraints|length }} recurring event{{ '' if user.constraints|length == 1 else 's' }} currently saved.</p>
       {% endif %}
-
-      <form method="post" action="{{ url_for('new_constraint') }}" class="mt16">
-        <div class="form-grid">
-          <div class="form-row">
-            <label>Day (0–13)</label>
-            <input type="number" name="day_of_fortnight" min="0" max="13" value="0" required>
-          </div>
-          <div class="form-row">
-            <label>Subject</label>
-            <select name="subject_id">
-              <option value="0">— None —</option>
-              {% for s in user.subjects %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="form-row">
-            <label>Name</label>
-            <input type="text" name="name" placeholder="Period 1 — Maths" required>
-          </div>
-          <div class="form-row">
-            <label>Start (24h decimal)</label>
-            <input type="number" name="start_time" step="0.25" min="0" max="24" placeholder="9.25" required>
-          </div>
-          <div class="form-row">
-            <label>End (24h decimal)</label>
-            <input type="number" name="end_time" step="0.25" min="0" max="24" placeholder="10.25" required>
-          </div>
-          <div class="form-row">
-            <label><input type="checkbox" name="is_study_period"> Study period</label>
-            <label><input type="checkbox" name="is_half_period"> Half period</label>
-          </div>
-        </div>
-        <button class="btn">+ Add class</button>
-      </form>
     </div>
   </div>
 </div>

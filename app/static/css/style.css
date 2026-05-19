@@ -580,30 +580,3 @@ html[data-theme="dark"] .flash.ok    { background: #1a3a25; color: #c0eed1; bord
   .app-shell { grid-template-columns: 1fr; }
   .content { padding: 0; }
 }
-
-/* --- accessibility polish (v1.0 — added Fri 15 May 2026) -----------------
-   High-contrast palette + 3px focus outline + zoom slider all key off the
-   <html data-*> attributes set from user.preferences. base.html owns the
-   plumbing; this block just locks in the AA contrast ratios so a marker
-   running axe-core gets a clean report.
-*/
-html[data-contrast="high"] { --text: #000; --bg: #fff; --primary: #2a1a9c; }
-html[data-focus="on"] :focus { outline: 3px solid var(--primary); outline-offset: 2px; }
-
-/* --- splash animation (v1.0 — Sat 16 May 2026) ---------------------------
-   Splash fades in over 600ms, holds 1.4s, then a JS redirect drops the user
-   on /login. The .splash-card animation lives here; the timer is in
-   static/js/app.js. */
-@keyframes splash-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: none; }
-}
-.splash-card { animation: splash-in 600ms ease-out both; }
-
-/* --- print stylesheet (added during pre-submission bug sweep) ----------- */
-@media print {
-  .sidebar, .topbar { display: none; }
-  body, .content { background: #fff; color: #000; }
-  .card { border: 1px solid #ccc; box-shadow: none; }
-  a { color: #000; text-decoration: underline; }
-}

@@ -28,8 +28,19 @@
         <input type="number" name="weighting" min="0" max="100" step="0.5" value="{{ task.weighting if task else 20 }}" required>
       </div>
       <div class="form-row">
-        <label>Hours required</label>
-        <input type="number" name="hours_required" min="0.5" max="200" step="0.5" value="{{ task.hours_required if task else 8 }}" required>
+        <label>Estimated time required</label>
+        {# Splits hours_required into H + M inputs so users can enter minute-precise
+           durations. The backend converts these to a decimal-hours float and
+           keeps using that value for scheduling — UI representation only. #}
+        {% set hh = (task.hours_required|int) if task else 8 %}
+        {% set mm = ((task.hours_required - (task.hours_required|int)) * 60)|round(0)|int if task else 0 %}
+        <div class="hm-input">
+          <input type="number" name="hours_required_h" min="0" max="200" step="1" value="{{ hh }}" aria-label="Hours">
+          <span class="muted tiny">h</span>
+          <input type="number" name="hours_required_m" min="0" max="59" step="5" value="{{ mm }}" aria-label="Minutes">
+          <span class="muted tiny">min</span>
+        </div>
+        <div class="tiny muted">Stored as decimal hours for scheduling — you can type either H+M or use 0 hours and just minutes.</div>
       </div>
       {% if task %}
       <div class="form-row">
@@ -38,6 +49,18 @@
       </div>
       {% endif %}
     </div>
+
+    <div class="form-row" style="margin-top:14px;">
+      <label>
+        Private notes &nbsp;
+        <span class="tiny muted" style="font-weight:400;">
+          🔒 Encrypted at rest with a key derived from your password. Only readable while you're signed in.
+        </span>
+      </label>
+      <textarea name="private_notes" rows="3"
+                placeholder="Anything sensitive you want to remember about this task — won't be readable to anyone with the JSON file but not your password.">{{ private_notes_plain or '' }}</textarea>
+    </div>
+
     <div class="row mt16" style="justify-content:flex-end; gap:8px;">
       <a class="btn ghost" href="{{ url_for('dashboard') }}">Cancel</a>
       {% if task %}
