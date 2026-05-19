@@ -24,9 +24,9 @@
     <div class="delta">{{ ranked|length }} active task{{ '' if ranked|length == 1 else 's' }}</div>
   </div>
   <div class="kpi">
-    <div class="label">Free study time</div>
-    <div class="value">{{ "%.1f"|format(cushion.total_free_hours) }} h</div>
-    <div class="delta">After classes, sleep, fixed events</div>
+    <div class="label">Free study time / week</div>
+    <div class="value">{{ "%.1f"|format(week_free_hours) }} h</div>
+    <div class="delta">Next 7 days · after classes, sleep, fixed events</div>
   </div>
   <div class="kpi">
     <div class="label">Cushion ratio</div>
@@ -49,20 +49,26 @@
       <p class="muted">No active tasks. Add one to start scheduling.</p>
     {% else %}
       <div class="task-list">
-      {% for t in ranked %}
+      {% for t, due_label in ranked %}
         {% set subj = subjects_by_id.get(t.subject_id) %}
-        <div class="task" data-task-id="{{ t.id }}">
+        {% set overdue = t.priority_score >= 9999 %}
+        {% set critical = t.priority_score >= 999 and not overdue %}
+        <div class="task{% if overdue %} overdue{% endif %}" data-task-id="{{ t.id }}">
           <div class="swatch" style="background: {{ subj.colour if subj else '#7B68EE' }}"></div>
           <div>
             <div class="name">
               <a href="{{ url_for('edit_task', task_id=t.id) }}" style="color:inherit;">{{ t.name }}</a>
-              {% if t.priority_score >= 999 %}<span class="crit-tag">Critical</span>{% endif %}
+              {% if overdue %}<span class="crit-tag overdue-tag">Overdue</span>
+              {% elif critical %}<span class="crit-tag">Critical</span>{% endif %}
             </div>
-            <div class="sub">{{ subj.name if subj else 'Unassigned' }} · due {{ t.due_date }} · {{ "%.1f"|format(t.remaining_hours()) }}h left</div>
+            <div class="sub">
+              {{ subj.name if subj else 'Unassigned' }} · {{ due_label }} ·
+              <span data-task-h-left="{{ t.id }}">{{ "%.1f"|format(t.remaining_hours()) }}</span>h left
+            </div>
           </div>
           <div class="right">
-            <div class="pri {% if t.priority_score >= 999 %}crit{% endif %}">
-              {% if t.priority_score >= 999 %}!!{% else %}{{ "%.1f"|format(t.priority_score) }}{% endif %}
+            <div class="pri {% if overdue or critical %}crit{% endif %}">
+              {% if overdue %}!!!{% elif critical %}!!{% else %}{{ "%.1f"|format(t.priority_score) }}{% endif %}
             </div>
             <div class="tiny muted">priority</div>
           </div>
@@ -73,9 +79,10 @@
             <input class="progress-slider" type="range" min="0" max="100" step="5"
                    value="{{ (t.completion_percent * 100)|round(0, 'floor') }}"
                    data-task="{{ t.id }}"
+                   data-hours-required="{{ t.hours_required }}"
                    aria-label="Completion percent for {{ t.name }}"
                    style="flex:1;">
-            <span class="tiny muted">{{ (t.completion_percent * 100)|round(0, 'floor') }}%</span>
+            <span class="tiny muted" data-task-pct-label="{{ t.id }}">{{ (t.completion_percent * 100)|round(0, 'floor') }}%</span>
           </div>
         </div>
       {% endfor %}

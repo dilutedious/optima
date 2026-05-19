@@ -10,37 +10,56 @@
     <a class="btn ghost small" href="{{ url_for('monthly', month=next_month) }}">Next ›</a>
   </div>
 </div>
-<p class="page-sub">Due dates and scheduled study blocks across the month.</p>
+<p class="page-sub">
+  Due dates and scheduled study blocks across the month. Coloured bars stretch
+  from today to each assignment's due date — toggle per assignment on the
+  task form.
+</p>
 
 <div class="month">
-  <div class="month-grid">
+  <div class="month-dow-row">
     {% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
       <div class="dow">{{ d }}</div>
     {% endfor %}
-    {% for row in weeks %}
+  </div>
+  {% for row in weeks %}
+    <div class="month-row">
       {% for cell in row %}
         {% if cell is none %}
           <div class="day faded"></div>
         {% else %}
           <div class="day {% if cell == today %}today{% endif %} {% if cell.month != ref.month %}faded{% endif %}">
             <div class="num">{{ cell.day }}</div>
-            {% set events = grid.get(cell.isoformat(), []) %}
-            {% for e in events[:3] %}
-              <div class="ev">
-                <span class="dot" style="background: {{ e.colour }}"></span>
-                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                  {% if e.kind == 'due' %}<strong>Due:</strong>{% endif %}
-                  {{ e.name }}
-                </span>
-              </div>
-            {% endfor %}
-            {% if events|length > 3 %}
-              <div class="tiny muted">+{{ events|length - 3 }} more</div>
-            {% endif %}
+            <div class="day-body">
+              {% set events = grid.get(cell.isoformat(), []) %}
+              {% for e in events[:3] %}
+                <div class="ev">
+                  <span class="dot" style="background: {{ e.colour }}"></span>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                    {% if e.kind == 'due' %}<strong>Due:</strong>{% endif %}
+                    {{ e.name }}
+                  </span>
+                </div>
+              {% endfor %}
+              {% if events|length > 3 %}
+                <div class="tiny muted">+{{ events|length - 3 }} more</div>
+              {% endif %}
+              {% set overflow = overflow_by_day.get(cell.isoformat(), 0) %}
+              {% if overflow %}
+                <div class="stretch-overflow" title="{{ overflow }} more assignment line{{ '' if overflow == 1 else 's' }} couldn't fit">+{{ overflow }} more</div>
+              {% endif %}
+            </div>
           </div>
         {% endif %}
       {% endfor %}
-    {% endfor %}
-  </div>
+      {# Stretch bars overlay, positioned by col_start/col_end and lane. #}
+      {% for seg in stretch_rows[loop.index0] %}
+        {% set span = seg.col_end - seg.col_start + 1 %}
+        <div class="stretch-bar"
+             style="left: calc((100% / 7) * {{ seg.col_start }}); width: calc((100% / 7) * {{ span }}); top: calc(28px + {{ seg.lane }} * 6px); background: {{ seg.colour }};"
+             title="{{ seg.name }}"></div>
+      {% endfor %}
+    </div>
+  {% endfor %}
 </div>
 {% endblock %}

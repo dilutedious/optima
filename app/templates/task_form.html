@@ -5,7 +5,7 @@
 <div class="page-header"><h1>{{ 'Edit' if task else 'Add' }} task</h1></div>
 
 <div class="card" style="max-width: 720px;">
-  <form method="post">
+  <form method="post" id="taskForm" data-task-id="{{ task.id if task else '' }}">
     <div class="form-grid">
       <div class="form-row">
         <label>Name</label>
@@ -13,26 +13,55 @@
       </div>
       <div class="form-row">
         <label>Subject</label>
-        <select name="subject_id">
+        <select name="subject_id" id="subjectSelect">
           {% for s in user.subjects %}
             <option value="{{ s.id }}" {% if task and task.subject_id == s.id %}selected{% endif %}>{{ s.name }}</option>
           {% endfor %}
         </select>
       </div>
       <div class="form-row">
-        <label>Due date</label>
-        <input type="date" name="due_date" value="{{ task.due_date if task else '' }}" required>
+        <label>Type</label>
+        <select name="type" id="typeSelect">
+          <option value="homework" {% if not task or task.type == 'homework' %}selected{% endif %}>Homework</option>
+          <option value="exam" {% if task and task.type == 'exam' %}selected{% endif %}>Exam / assessment</option>
+          <option value="project" {% if task and task.type == 'project' %}selected{% endif %}>Project</option>
+        </select>
+      </div>
+      <div class="form-row" id="importanceRow">
+        <label>Importance</label>
+        <select name="importance">
+          <option value="low" {% if task and task.importance == 'low' %}selected{% endif %}>Low</option>
+          <option value="medium" {% if not task or task.importance == 'medium' %}selected{% endif %}>Medium</option>
+          <option value="high" {% if task and task.importance == 'high' %}selected{% endif %}>High</option>
+        </select>
+      </div>
+      <div class="form-row" id="weightingRow" hidden>
+        <label>Weighting (%)</label>
+        <input type="number" name="weighting" min="0" max="100" step="0.5" value="{{ task.weighting if task else 20 }}">
+        <div class="tiny muted">Shown for Exam / assessment only.</div>
       </div>
       <div class="form-row">
-        <label>Weighting (%)</label>
-        <input type="number" name="weighting" min="0" max="100" step="0.5" value="{{ task.weighting if task else 20 }}" required>
+        <label>Due date</label>
+        <input type="date" name="due_date" id="dueDate" value="{{ task.due_date if task else '' }}" required>
+        <div class="tiny muted" id="dueHint" hidden></div>
+      </div>
+      <div class="form-row">
+        <label>Due time</label>
+        {% if task %}
+          {% set dh = task.due_time|int %}
+          {% set dm = ((task.due_time - dh) * 60)|round|int %}
+          <input type="time" name="due_time" id="dueTime" value="{{ '%02d:%02d'|format(dh, dm) }}">
+        {% else %}
+          <input type="time" name="due_time" id="dueTime" value="09:00">
+        {% endif %}
+        <div class="tiny muted">Defaults to 09:00 if left blank.</div>
       </div>
       <div class="form-row">
         <label>Estimated time required</label>
         {# Splits hours_required into H + M inputs so users can enter minute-precise
            durations. The backend converts these to a decimal-hours float and
            keeps using that value for scheduling — UI representation only. #}
-        {% set hh = (task.hours_required|int) if task else 8 %}
+        {% set hh = (task.hours_required|int) if task else 2 %}
         {% set mm = ((task.hours_required - (task.hours_required|int)) * 60)|round(0)|int if task else 0 %}
         <div class="hm-input">
           <input type="number" name="hours_required_h" min="0" max="200" step="1" value="{{ hh }}" aria-label="Hours">
@@ -40,7 +69,6 @@
           <input type="number" name="hours_required_m" min="0" max="59" step="5" value="{{ mm }}" aria-label="Minutes">
           <span class="muted tiny">min</span>
         </div>
-        <div class="tiny muted">Stored as decimal hours for scheduling — you can type either H+M or use 0 hours and just minutes.</div>
       </div>
       {% if task %}
       <div class="form-row">
@@ -48,6 +76,12 @@
         <input type="number" name="completion_percent" min="0" max="1" step="0.05" value="{{ task.completion_percent }}">
       </div>
       {% endif %}
+      <div class="form-row" style="grid-column: 1/-1;">
+        <label class="row gap8" style="margin:0; cursor:pointer;">
+          <input type="checkbox" name="show_stretch_line" {% if not task or task.show_stretch_line %}checked{% endif %}>
+          <span>Show stretch line on monthly view <span class="tiny muted">(coloured bar from today to the due date)</span></span>
+        </label>
+      </div>
     </div>
 
     <div class="form-row" style="margin-top:14px;">
@@ -70,4 +104,68 @@
     </div>
   </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const typeSel = document.getElementById("typeSelect");
+  const importanceRow = document.getElementById("importanceRow");
+  const weightingRow = document.getElementById("weightingRow");
+  const subjectSel = document.getElementById("subjectSelect");
+  const dueDate = document.getElementById("dueDate");
+  const dueTime = document.getElementById("dueTime");
+  const dueHint = document.getElementById("dueHint");
+
+  function applyTypeVisibility() {
+    const isExam = typeSel.value === "exam";
+    weightingRow.hidden = !isExam;
+    importanceRow.hidden = isExam;
+  }
+  applyTypeVisibility();
+  typeSel.addEventListener("change", () => {
+    applyTypeVisibility();
+    // Switching to "homework" should kick off the auto-fill too — the user
+    // likely just realised they want this rule to apply.
+    if (typeSel.value === "homework") syncFromSubject({force: true});
+  });
+
+  function fmtHM(dec) {
+    const h = Math.floor(dec);
+    const m = Math.round((dec - h) * 60);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+
+  // Auto-fill due date AND start-of-class time from the next subject
+  // occurrence. When ``force`` is true (subject change, type change), we
+  // overwrite whatever is in the date / time fields. When false (initial
+  // paint), we only fill empty fields so we don't stomp on an existing
+  // server-rendered value for an Edit form.
+  async function syncFromSubject({force}) {
+    if (typeSel.value !== "homework") return;
+    if (!subjectSel.value) return;
+    if (!force && dueDate.value) return;
+    try {
+      const r = await fetch(`/api/subjects/${subjectSel.value}/next_occurrence`);
+      const data = await r.json();
+      if (!data.date) {
+        // No upcoming class — clear the hint, leave the user's values alone.
+        dueHint.hidden = true;
+        return;
+      }
+      dueDate.value = data.date;
+      if (typeof data.start_time === "number") {
+        dueTime.value = fmtHM(data.start_time);
+      }
+      const subjName = subjectSel.options[subjectSel.selectedIndex].text;
+      dueHint.textContent = `Defaulted to the start of your next ${subjName} class — change if wrong.`;
+      dueHint.hidden = false;
+    } catch (e) { /* network blip — leave the field for the user */ }
+  }
+  // Always re-sync on subject change, even if a date is already set.
+  subjectSel.addEventListener("change", () => syncFromSubject({force: true}));
+  // Initial paint: only prefill when the field is empty (i.e. New task).
+  syncFromSubject({force: false});
+})();
+</script>
 {% endblock %}

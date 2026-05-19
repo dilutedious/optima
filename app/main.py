@@ -41,7 +41,19 @@ from .auth import (
     verify_password,
 )
 from .crypto import derive_key, encrypt, decrypt
-from .models import Assignment, Constraint, Preferences, ScheduleBlock, Subject, User
+from .models import (
+    Assignment,
+    Constraint,
+    EVENT_KINDS,
+    Period,
+    Preferences,
+    RECURRENCES,
+    ScheduleBlock,
+    Subject,
+    TASK_TYPES,
+    TASK_IMPORTANCE,
+    User,
+)
 from .priority import rank_assignments
 from .scheduler import generate_schedule, calculate_cushion, find_free_slots
 from .storage import Storage
@@ -122,6 +134,41 @@ def _coerce_int(raw, *, default: int = 0, lo: int | None = None,
     return v, None
 
 
+def _coerce_clock(raw, *, default: float = 0.0) -> tuple[float, Optional[str]]:
+    """Parse a clock-ish form value into decimal hours.
+
+    Accepts "22:30", "22", "22.5", "10:30pm". Empty / missing returns the
+    supplied default with no error. Out-of-range values return an error.
+    """
+    if raw is None or str(raw).strip() == "":
+        return default, None
+    s = str(raw).strip().lower().replace(" ", "")
+    # 12-hour pattern e.g. 10:30pm
+    import re as _re
+    m = _re.fullmatch(r"(\d{1,2})(?::(\d{1,2}))?(am|pm)?", s)
+    if m:
+        h = int(m.group(1))
+        minute = int(m.group(2) or 0)
+        ampm = m.group(3)
+        if ampm:
+            if h == 12:
+                h = 0
+            if ampm == "pm":
+                h += 12
+        v = h + minute / 60.0
+        if 0.0 <= v <= 24.0:
+            return round(v * 60) / 60.0, None
+        return default, "must be between 00:00 and 24:00"
+    # Decimal e.g. 22.5
+    try:
+        v = float(s)
+    except ValueError:
+        return default, "must look like 22:30 or 22.5"
+    if 0.0 <= v <= 24.0:
+        return v, None
+    return default, "must be between 00:00 and 24:00"
+
+
 def _coerce_hours_minutes(hours_raw, minutes_raw, *, decimal_fallback=None,
                           lo: float = 0.0, hi: float = 200.0) -> tuple[float, Optional[str]]:
     """Combine "hours" + "minutes" form fields into a decimal-hours float.
@@ -165,11 +212,7 @@ def _current_user(storage: Storage) -> Optional[User]:
     username = session.get("username")
     if not username:
         return None
-    user = storage.load_user(username)
-    if user and user.migrate_constraints():
-        # Heal legacy constraint data once on first access in this process.
-        storage.save_user(user)
-    return user
+    return storage.load_user(username)
 
 
 def _session_key() -> Optional[bytes]:
@@ -316,19 +359,29 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
         user = _current_user(storage)
         if user is None:
             return redirect(url_for("login"))
-        ranked = rank_assignments(user.assignments)
+        now = datetime.now()
         result = generate_schedule(user)
-        # Persist priority scores + freshly generated blocks so the UI sees
-        # the same data the scheduler just produced.
+        # Persist freshly generated blocks before ranking so the
+        # auto-progress pass sees today's full plan.
         user.schedule_blocks = result.blocks
+        _auto_progress_from_blocks(user, now)
+        ranked = rank_assignments(user.assignments, now)
+        # Per-week free-hours figure for the KPI — separate from the
+        # cushion ratio which still uses the full 14-day horizon.
+        week_free_hours = sum(s.length for s in find_free_slots(user, horizon_days=7))
         storage.save_user(user)
         cushion_pct = int(min(max(result.cushion, 0.0), 2.0) * 100 / 2)
+        # Decorate each ranked entry with the relative-due string the
+        # template needs. Keeping it server-side means the template stays
+        # simple and the format respects the user's 12/24h pref centrally.
+        decorated = [(t, _due_label(t, now, user.preferences.time_format)) for t in ranked]
         return render_template(
             "dashboard.html",
             user=user,
-            ranked=ranked[:6],
+            ranked=decorated[:6],
             cushion=result,
             cushion_pct=cushion_pct,
+            week_free_hours=week_free_hours,
             today_iso=date.today().isoformat(),
             subjects_by_id={s.id: s for s in user.subjects},
         )
@@ -399,9 +452,10 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
                 "date": b.date_iso,
                 "start_time": b.start_time,
                 "end_time": b.start_time + b.duration,
-                "name": a.name if a else "Study session",
+                "name": ("Break" if b.is_break else (a.name if a else "Study session")),
                 "colour": subj.colour if subj else "#7B68EE",
                 "completed": b.completed,
+                "is_break": b.is_break,
             })
         return out
 
@@ -416,11 +470,98 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             events=_expand_constraints(user, start, end),
             blocks=_expand_blocks(user, start, end),
             subjects=[{"id": s.id, "name": s.name, "colour": s.colour} for s in user.subjects],
+            periods=[{"id": p.id, "name": p.name, "start_time": p.start_time, "end_time": p.end_time}
+                     for p in user.periods],
             time_format=user.preferences.time_format,
+            sleep_start=user.sleep_start,
+            sleep_end=user.sleep_end,
         )
 
-    def _coerce_event_payload(payload: dict) -> tuple[dict, list[str]]:
-        """Validate the JSON body for create/update. Returns (clean, errors)."""
+    @app.route("/api/periods")
+    def api_periods_list():
+        user = _require_user()
+        return jsonify(periods=[p.to_dict() for p in user.periods])
+
+    @app.route("/api/periods", methods=["POST"])
+    def api_period_create():
+        user = _require_user()
+        body = request.get_json(silent=True) or {}
+        name = (body.get("name") or "").strip()[:60]
+        if not name:
+            return jsonify(ok=False, errors=["Period needs a name."]), 400
+        start, err = _coerce_float(body.get("start_time"), lo=0.0, hi=24.0)
+        if err:
+            return jsonify(ok=False, errors=[f"Start time {err}."]), 400
+        end, err = _coerce_float(body.get("end_time"), lo=0.0, hi=24.0)
+        if err:
+            return jsonify(ok=False, errors=[f"End time {err}."]), 400
+        if end <= start:
+            return jsonify(ok=False, errors=["End must be after start."]), 400
+        start = round(start * 12) / 12
+        end = round(end * 12) / 12
+        p = Period(id=user.next_period_id(), name=name, start_time=start, end_time=end)
+        user.periods.append(p)
+        storage.save_user(user)
+        return jsonify(ok=True, period=p.to_dict())
+
+    @app.route("/api/periods/<int:pid>", methods=["DELETE"])
+    def api_period_delete(pid: int):
+        user = _require_user()
+        before = len(user.periods)
+        user.periods = [p for p in user.periods if p.id != pid]
+        if len(user.periods) == before:
+            return jsonify(ok=False, errors=["Period not found."]), 404
+        storage.save_user(user)
+        return jsonify(ok=True)
+
+    @app.route("/api/subjects/<int:subject_id>/next_occurrence")
+    def api_next_subject_occurrence(subject_id: int):
+        """Find the next date AND start time a class for this subject is on.
+
+        Used by the task form's JS to pre-fill the due date + time when
+        type=homework and the user has just chosen a subject. Returns
+        ``{date: "yyyy-mm-dd", start_time: 9.5}`` or ``{date: null}``.
+        """
+        user = _require_user()
+        # Search next 60 days; the user could leave a subject scheduled for
+        # months out (e.g. exam blocks), but homework defaults beyond that
+        # don't make sense — fall back to null so the JS leaves the field
+        # for the user.
+        today_d = date.today()
+        for offset in range(1, 60):
+            d = today_d + timedelta(days=offset)
+            # Prefer the earliest class of the day if there are several.
+            matches = [c for c in user.constraints
+                       if c.subject_id == subject_id and c.kind == "subject" and c.occurs_on(d)]
+            if not matches:
+                continue
+            earliest = min(matches, key=lambda c: c.occurrence_view(d)["start_time"])
+            return jsonify(
+                date=d.isoformat(),
+                start_time=earliest.occurrence_view(d)["start_time"],
+            )
+        return jsonify(date=None)
+
+    def _sleep_overlap(user: User, start: float, end: float) -> bool:
+        """True if [start, end] overlaps the user's sleep window.
+
+        The window can wrap past midnight (e.g. 21:30 → 07:00). Returns
+        True for *any* intersection, not just full containment — even a
+        15-minute overlap is enough to refuse, because the whole point is
+        that the user told us they're asleep.
+        """
+        from .scheduler import _sleep_intervals
+        for s_start, s_end in _sleep_intervals(user.sleep_start, user.sleep_end):
+            if start < s_end and end > s_start:
+                return True
+        return False
+
+    def _coerce_event_payload(payload: dict, user: Optional[User] = None) -> tuple[dict, list[str]]:
+        """Validate the JSON body for create/update. Returns (clean, errors).
+
+        When ``user`` is supplied, the payload's [start, end] is checked
+        against the user's sleep window — an overlap is a hard reject.
+        """
         errors: list[str] = []
         name = (payload.get("name") or "").strip() or "Event"
         if len(name) > 120:
@@ -436,13 +577,17 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
         # Snap to 5-min grid so we never store sub-minute noise.
         start = round(start * 12) / 12
         end = round(end * 12) / 12
-        recurrence = payload.get("recurrence", "weekly")
-        from .models import RECURRENCES as _R, EVENT_KINDS as _K
-        if recurrence not in _R:
+        if not errors and user is not None and _sleep_overlap(user, start, end):
+            errors.append(
+                "That time overlaps your sleep window — change the time, "
+                "or update the sleep range in Settings."
+            )
+        recurrence = payload.get("recurrence", "fortnightly")
+        if recurrence not in RECURRENCES:
             errors.append("Unknown recurrence.")
-            recurrence = "weekly"
+            recurrence = "fortnightly"
         kind = payload.get("kind", "subject")
-        if kind not in _K:
+        if kind not in EVENT_KINDS:
             errors.append("Unknown event kind.")
             kind = "subject"
         anchor_date = (payload.get("anchor_date") or "").strip()
@@ -463,14 +608,16 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             "kind": kind,
             "anchor_date": anchor_date,
             "subject_id": subject_id,
-            "is_study_period": bool(payload.get("is_study_period")),
+            # is_study_period is now derived from kind=="study_block" but
+            # we keep the field on the model so legacy data round-trips.
+            "is_study_period": kind == "study_block",
             "is_half_period": bool(payload.get("is_half_period")),
         }, errors)
 
     @app.route("/api/events", methods=["POST"])
     def api_event_create():
         user = _require_user()
-        clean, errors = _coerce_event_payload(request.get_json(silent=True) or {})
+        clean, errors = _coerce_event_payload(request.get_json(silent=True) or {}, user=user)
         if errors:
             return jsonify(ok=False, errors=errors), 400
         if clean["subject_id"] and not any(s.id == clean["subject_id"] for s in user.subjects):
@@ -522,6 +669,11 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             eff_end = override.get("end_time", c.end_time)
             if eff_end <= eff_start:
                 return jsonify(ok=False, errors=["End must be after start."]), 400
+            if _sleep_overlap(user, eff_start, eff_end):
+                return jsonify(ok=False, errors=[
+                    "That time overlaps your sleep window — change the time, "
+                    "or update the sleep range in Settings."
+                ]), 400
             c.overrides[on_date] = override
             storage.save_user(user)
             return jsonify(ok=True)
@@ -538,7 +690,7 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             "is_study_period": body.get("is_study_period", c.is_study_period),
             "is_half_period": body.get("is_half_period", c.is_half_period),
         }
-        clean, errors = _coerce_event_payload(merged)
+        clean, errors = _coerce_event_payload(merged, user=user)
         if errors:
             return jsonify(ok=False, errors=errors), 400
         if clean["subject_id"] and not any(s.id == clean["subject_id"] for s in user.subjects):
@@ -613,6 +765,11 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
                 continue
             start = round(start * 12) / 12
             end = round(end * 12) / 12
+            if _sleep_overlap(user, start, end):
+                errors.append(
+                    f"Move for {cid}: that time overlaps your sleep window."
+                )
+                continue
             scope = m.get("scope", "this")
             if scope == "all":
                 delta = start - c.start_time
@@ -642,6 +799,7 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
         ref_str = request.args.get("month")
         ref = datetime.strptime(ref_str, "%Y-%m").date() if ref_str else date.today().replace(day=1)
         grid, weeks = _build_month_grid(user, ref)
+        stretch_rows, overflow_by_day = _build_stretch_segments(user, weeks)
         prev_ref = (ref.replace(day=1) - timedelta(days=1)).replace(day=1)
         next_year = ref.year + (1 if ref.month == 12 else 0)
         next_month = 1 if ref.month == 12 else ref.month + 1
@@ -652,6 +810,8 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             ref=ref,
             grid=grid,
             weeks=weeks,
+            stretch_rows=stretch_rows,
+            overflow_by_day=overflow_by_day,
             prev_month=prev_ref.strftime("%Y-%m"),
             next_month=next_ref.strftime("%Y-%m"),
             today=date.today(),
@@ -683,12 +843,50 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
                     user.term_start = ts
                 except ValueError:
                     flash("Term start must look like YYYY-MM-DD.", "error")
+            # Sleep window — fed to the scheduler so it never places study
+            # blocks at e.g. 2 AM. Stored as decimal hours; the form accepts
+            # both 22.5 (decimal) and "22:30" forms via _coerce_clock.
+            ss, err = _coerce_clock(request.form.get("sleep_start"), default=user.sleep_start)
+            if err:
+                flash(f"Sleep start {err}.", "error")
+            else:
+                user.sleep_start = ss
+            se, err = _coerce_clock(request.form.get("sleep_end"), default=user.sleep_end)
+            if err:
+                flash(f"Sleep end {err}.", "error")
+            else:
+                user.sleep_end = se
             storage.save_user(user)
             flash("Preferences saved.", "ok")
             return redirect(url_for("preferences"))
         return render_template("preferences.html", user=user)
 
     # -------- assignment / subject CRUD ----------------------------------
+
+    def _read_task_classification(form) -> tuple[str, str, float, list[str]]:
+        """Parse the task form fields for type / importance / weighting.
+
+        Returns (type, importance, weighting, errors). Weighting is only
+        validated for type == "exam"; otherwise it's stored as 0.0 and
+        importance carries the priority signal.
+        """
+        errors: list[str] = []
+        ttype = (form.get("type") or "homework").strip()
+        if ttype not in TASK_TYPES:
+            errors.append("Unknown task type.")
+            ttype = "homework"
+        importance = (form.get("importance") or "medium").strip()
+        if importance not in TASK_IMPORTANCE:
+            errors.append("Unknown importance.")
+            importance = "medium"
+        weighting = 0.0
+        if ttype == "exam":
+            w, err = _coerce_float(form.get("weighting"), lo=0.0, hi=100.0)
+            if err:
+                errors.append(f"Weighting {err}.")
+            else:
+                weighting = w
+        return ttype, importance, weighting, errors
 
     @app.route("/tasks/new", methods=["GET", "POST"])
     def new_task():
@@ -708,9 +906,8 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             elif subject_id and not any(s.id == subject_id for s in user.subjects):
                 errors.append("Unknown subject.")
 
-            weighting, err = _coerce_float(request.form.get("weighting"), lo=0.0, hi=100.0)
-            if err:
-                errors.append(f"Weighting {err}.")
+            ttype, importance, weighting, type_errs = _read_task_classification(request.form)
+            errors.extend(type_errs)
 
             hours, err = _coerce_hours_minutes(
                 request.form.get("hours_required_h"),
@@ -724,6 +921,9 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             due, err = _coerce_date(request.form.get("due_date"), allow_past=False)
             if err:
                 errors.append(f"Due date {err}.")
+            due_time, err = _coerce_clock(request.form.get("due_time"), default=9.0)
+            if err:
+                errors.append(f"Due time {err}.")
 
             if errors:
                 for e in errors:
@@ -736,8 +936,12 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
                 subject_id=subject_id,
                 name=name,
                 due_date=due.isoformat(),
+                due_time=due_time,
                 weighting=weighting,
                 hours_required=hours,
+                type=ttype,
+                importance=importance,
+                show_stretch_line=bool(request.form.get("show_stretch_line")),
                 est_hours=hours,
                 private_notes_encrypted=_encrypt_note(private_notes_plain),
             )
@@ -761,11 +965,22 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             task.subject_id = int(request.form.get("subject_id", task.subject_id))
             task.name = (request.form.get("name") or task.name).strip()
             task.due_date = (request.form.get("due_date") or task.due_date).strip()
+            due_time, err = _coerce_clock(request.form.get("due_time"), default=task.due_time)
+            if err:
+                flash(f"Due time {err}.", "error")
+            else:
+                task.due_time = due_time
+            ttype, importance, weighting, type_errs = _read_task_classification(request.form)
+            for e in type_errs:
+                flash(e, "error")
+            task.type = ttype
+            task.importance = importance
+            task.weighting = weighting   # 0.0 unless type=="exam"
+            task.show_stretch_line = bool(request.form.get("show_stretch_line"))
             try:
-                task.weighting = float(request.form.get("weighting", task.weighting))
                 task.completion_percent = max(0.0, min(1.0, float(request.form.get("completion_percent", task.completion_percent))))
             except ValueError:
-                flash("Numbers must be valid.", "error")
+                flash("Completion % must be a number.", "error")
             hours, err = _coerce_hours_minutes(
                 request.form.get("hours_required_h"),
                 request.form.get("hours_required_m"),
@@ -800,9 +1015,11 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             if a.id == task_id:
                 a.completion_percent = pct
                 a.completed = pct >= 1.0
-                # Reward XP when a task crosses to complete
+                # Reward XP when a task crosses to complete. Exam weighting
+                # carries through directly; homework/project use the same
+                # importance-weight mapping the scheduler uses.
                 if a.completed:
-                    user.study_points += int(a.weighting)
+                    user.study_points += int(a.scoring_weight())
                 storage.save_user(user)
                 return jsonify(ok=True, completion_percent=pct, study_points=user.study_points)
         return jsonify(ok=False, error="Not found"), 404
@@ -849,6 +1066,88 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
 
 # ----------- helpers used by routes --------------------------------------
 
+def _auto_progress_from_blocks(user: User, now: datetime) -> None:
+    """Advance ``completion_percent`` for each open task by past elapsed
+    scheduled hours.
+
+    Round-4 follow-up — the user wanted the progress bar to fill as the
+    scheduled study sessions tick past. We only move *forward*: if the
+    user has manually dragged the slider higher than auto would suggest,
+    we keep their value. When the auto value crosses 1.0 we mark the task
+    completed and grant XP — same flow as a manual completion.
+    """
+    today = now.date()
+    now_dec = now.hour + now.minute / 60.0
+    elapsed_by_id: dict[int, float] = {}
+    for b in user.schedule_blocks:
+        if b.is_break:
+            continue
+        try:
+            d = datetime.strptime(b.date_iso, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        # Past-day blocks count fully; today's blocks count up to the part
+        # that's already finished (start..start+duration <= now_dec).
+        if d < today:
+            elapsed_by_id[b.assignment_id] = elapsed_by_id.get(b.assignment_id, 0.0) + b.duration
+        elif d == today:
+            end_dec = b.start_time + b.duration
+            if end_dec <= now_dec:
+                elapsed_by_id[b.assignment_id] = elapsed_by_id.get(b.assignment_id, 0.0) + b.duration
+            elif b.start_time < now_dec < end_dec:
+                # Half-elapsed session — count just the part that's passed.
+                elapsed_by_id[b.assignment_id] = elapsed_by_id.get(b.assignment_id, 0.0) + (now_dec - b.start_time)
+    for a in user.assignments:
+        if a.completed or a.hours_required <= 0:
+            continue
+        auto_pct = min(1.0, elapsed_by_id.get(a.id, 0.0) / a.hours_required)
+        if auto_pct > a.completion_percent:
+            a.completion_percent = auto_pct
+            if a.completion_percent >= 1.0:
+                a.completed = True
+                user.study_points += int(a.scoring_weight())
+
+
+def _format_clock(decimal_hours: float, fmt: str) -> str:
+    """Render a decimal-hours time using the user's 12h/24h preference."""
+    h = int(decimal_hours)
+    m = int(round((decimal_hours - h) * 60))
+    if m == 60:
+        h += 1; m = 0
+    if fmt == "12h":
+        suffix = "am" if h < 12 else "pm"
+        h12 = ((h + 11) % 12) + 1
+        return f"{h12}:{m:02d}{suffix}" if m else f"{h12}{suffix}"
+    return f"{h:02d}:{m:02d}"
+
+
+def _due_label(assignment, now: datetime, fmt: str) -> str:
+    """Human-readable "due in X" / "overdue" string for the dashboard.
+
+    Relative phrasing (in 3h, tomorrow 4pm, …) for anything within a week;
+    falls through to a full date + time beyond that. Always reflects the
+    user's chosen time format.
+    """
+    delta_h = assignment.hours_until_due(now)
+    due_dt = assignment.due_at()
+    time_str = _format_clock(assignment.due_time, fmt)
+    if delta_h < 0:
+        # Overdue — say how long ago it slipped past.
+        ago_h = -delta_h
+        if ago_h < 24:
+            return f"Overdue · {ago_h:.0f}h ago"
+        return f"Overdue · {ago_h / 24:.0f}d ago"
+    if delta_h < 1:
+        return f"Due in {max(int(delta_h * 60), 1)} min"
+    if delta_h < 24 and due_dt.date() == now.date():
+        return f"Due today {time_str}"
+    if due_dt.date() == (now.date() + timedelta(days=1)):
+        return f"Due tomorrow {time_str}"
+    if delta_h < 24 * 7:
+        return f"Due {due_dt.strftime('%a')} {time_str}"
+    return f"Due {due_dt.strftime('%a %d %b')} {time_str}"
+
+
 def _seed_default_subjects(user: User) -> None:
     palette = [
         ("English", "#E5764C"),
@@ -863,6 +1162,98 @@ def _seed_default_subjects(user: User) -> None:
 
 def _monday_of(d: date) -> date:
     return d - timedelta(days=d.weekday())
+
+
+STRETCH_PER_ROW_CAP = 6
+
+
+def _build_stretch_segments(user: User, weeks: list[list[date | None]]) -> tuple[list[list[dict]], dict[str, int]]:
+    """Per-row horizontal bar segments for the monthly view.
+
+    For every assignment whose ``show_stretch_line`` is set, draw a bar from
+    today's cell (or the first visible cell, whichever is later) to the
+    due-date cell. Segments are sliced per calendar row so the renderer can
+    lay them out without worrying about wraparound.
+
+    Returns ``(stretch_rows, overflow_by_day)`` where:
+      - ``stretch_rows[r]`` is a list of dicts ``{col_start, col_end, lane,
+        name, colour, completed, assignment_id}`` for week index r.
+      - ``overflow_by_day[iso]`` is the count of bars that didn't fit in the
+        first ``STRETCH_PER_ROW_CAP`` lanes for the day cell with that ISO
+        date. Rendered as a ``"+ N more"`` badge.
+    """
+    today = date.today()
+    candidates: list[dict] = []
+    for a in user.assignments:
+        if a.completed or not a.show_stretch_line:
+            continue
+        try:
+            due = datetime.strptime(a.due_date, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if due < today:
+            continue
+        subj = user.subject_by_id(a.subject_id) if a.subject_id else None
+        candidates.append({
+            "assignment_id": a.id,
+            "name": a.name,
+            "colour": subj.colour if subj else "#7B68EE",
+            "start": today,
+            "end": due,
+            "priority": a.priority_score,
+        })
+    # Highest priority first, so the most urgent bars sit in the top lane.
+    candidates.sort(key=lambda c: (-float(c["priority"]), c["end"]))
+
+    stretch_rows: list[list[dict]] = []
+    overflow_by_day: dict[str, int] = {}
+    for row in weeks:
+        row_segs: list[dict] = []
+        # Lane tracking per row — each lane stores the col index of the last
+        # bar that occupied it, so we can pack bars left-to-right.
+        lane_last_end: list[int] = []
+        for c in candidates:
+            # Find this candidate's first/last col indices within this row.
+            col_start, col_end = None, None
+            for idx, cell in enumerate(row):
+                if cell is None:
+                    continue
+                if cell >= c["start"] and cell <= c["end"]:
+                    if col_start is None:
+                        col_start = idx
+                    col_end = idx
+            if col_start is None:
+                continue
+            # Pick the first lane where this bar doesn't overlap.
+            lane = -1
+            for i, last in enumerate(lane_last_end):
+                if last < col_start:
+                    lane = i
+                    lane_last_end[i] = col_end
+                    break
+            if lane == -1:
+                lane = len(lane_last_end)
+                lane_last_end.append(col_end)
+            if lane < STRETCH_PER_ROW_CAP:
+                row_segs.append({
+                    "assignment_id": c["assignment_id"],
+                    "name": c["name"],
+                    "colour": c["colour"],
+                    "col_start": col_start,
+                    "col_end": col_end,
+                    "lane": lane,
+                })
+            else:
+                # Overflow — bump the badge count on every cell this bar
+                # would have touched in this row.
+                for idx in range(col_start, col_end + 1):
+                    cell = row[idx]
+                    if cell is None:
+                        continue
+                    iso = cell.isoformat()
+                    overflow_by_day[iso] = overflow_by_day.get(iso, 0) + 1
+        stretch_rows.append(row_segs)
+    return stretch_rows, overflow_by_day
 
 
 def _build_month_grid(user: User, ref: date) -> tuple[dict, list[list[date | None]]]:

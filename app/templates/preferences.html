@@ -1,6 +1,80 @@
 {% extends "base.html" %}
 {% set active = 'preferences' %}
 {% block title %}Preferences — Optima{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  function parseClock(raw) {
+    const s = String(raw || "").trim().toLowerCase().replace(/\s+/g, "");
+    if (!s) return NaN;
+    const m = s.match(/^(\d{1,2})(?::(\d{1,2}))?(am|pm)?$/);
+    if (m) {
+      let h = parseInt(m[1], 10);
+      const mm = parseInt(m[2] || "0", 10);
+      const ap = m[3];
+      if (ap === "am" && h === 12) h = 0;
+      else if (ap === "pm" && h < 12) h += 12;
+      return h + mm / 60;
+    }
+    const v = parseFloat(s);
+    return isNaN(v) ? NaN : v;
+  }
+  function fmt(dec) {
+    const h = Math.floor(dec);
+    const m = Math.round((dec - h) * 60);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+
+  const form = document.getElementById("periodForm");
+  const listEl = document.getElementById("periodList");
+  const errEl = document.getElementById("periodErr");
+
+  function renderRow(p) {
+    let tbody = listEl.querySelector("tbody");
+    if (!tbody) {
+      listEl.innerHTML = `<table style="width:100%; font-size:13px; margin-bottom:8px;"><thead><tr><th align="left">Name</th><th align="left">Start</th><th align="left">End</th><th></th></tr></thead><tbody></tbody></table>`;
+      tbody = listEl.querySelector("tbody");
+    }
+    const tr = document.createElement("tr");
+    tr.dataset.periodId = p.id;
+    tr.innerHTML = `<td>${p.name}</td><td>${fmt(p.start_time)}</td><td>${fmt(p.end_time)}</td><td align="right"><button type="button" class="btn ghost small period-delete" data-id="${p.id}">×</button></td>`;
+    tbody.appendChild(tr);
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errEl.hidden = true;
+    const name = form.elements.name.value.trim();
+    const start = parseClock(form.elements.start_time.value);
+    const end = parseClock(form.elements.end_time.value);
+    if (!name) { errEl.textContent = "Name is required."; errEl.hidden = false; return; }
+    if (!isFinite(start) || !isFinite(end)) { errEl.textContent = "Couldn't parse times (try 07:50)."; errEl.hidden = false; return; }
+    const r = await fetch("/api/periods", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({name, start_time: start, end_time: end}),
+    });
+    const data = await r.json();
+    if (!r.ok) { errEl.textContent = (data.errors || ["Save failed."]).join(" "); errEl.hidden = false; return; }
+    renderRow(data.period);
+    form.reset();
+    const noMsg = document.getElementById("noPeriodsMsg");
+    if (noMsg) noMsg.remove();
+  });
+
+  listEl.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".period-delete");
+    if (!btn) return;
+    if (!confirm("Delete this period?")) return;
+    const id = btn.getAttribute("data-id");
+    const r = await fetch(`/api/periods/${id}`, {method: "DELETE"});
+    if (!r.ok) { alert("Delete failed."); return; }
+    const tr = btn.closest("tr");
+    if (tr) tr.remove();
+  });
+})();
+</script>
+{% endblock %}
 {% block content %}
 <div class="page-header"><h1>Settings &amp; Preferences</h1></div>
 <p class="page-sub">All saved locally to your profile.</p>
@@ -77,10 +151,56 @@
             <input type="date" name="term_start" value="{{ user.term_start }}" style="width:170px;">
           </div>
         </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">Sleep window</div>
+            <div class="desc">Blocked out on the weekly view. The auto-scheduler will never place study blocks inside this window. Accepts <code>22:30</code> or <code>22.5</code>.</div>
+          </div>
+          <div class="row gap8">
+            <input type="text" name="sleep_start" value="{{ '%02d:%02d'|format(user.sleep_start|int, ((user.sleep_start - (user.sleep_start|int)) * 60)|round|int) }}" style="width:90px;" aria-label="Sleep start">
+            <span class="tiny muted">to</span>
+            <input type="text" name="sleep_end" value="{{ '%02d:%02d'|format(user.sleep_end|int, ((user.sleep_end - (user.sleep_end|int)) * 60)|round|int) }}" style="width:90px;" aria-label="Sleep end">
+          </div>
+        </div>
         <div class="row mt16" style="justify-content:flex-end;">
           <button type="submit" class="btn">Save preferences</button>
         </div>
       </form>
+    </div>
+
+    <div class="card mt24">
+      <h2>Periods (preset times)</h2>
+      <p class="tiny muted">
+        Used to pre-fill the start/end fields when adding events on the weekly view.
+        Add the period bell times once here, then pick a preset whenever you're
+        adding a class for that period.
+      </p>
+      <div id="periodList">
+        {% if user.periods %}
+          <table style="width:100%; font-size: 13px; margin-bottom: 8px;">
+            <thead><tr><th align="left">Name</th><th align="left">Start</th><th align="left">End</th><th></th></tr></thead>
+            <tbody>
+              {% for p in user.periods %}
+                <tr data-period-id="{{ p.id }}">
+                  <td>{{ p.name }}</td>
+                  <td>{{ '%02d:%02d'|format(p.start_time|int, ((p.start_time - (p.start_time|int)) * 60)|round|int) }}</td>
+                  <td>{{ '%02d:%02d'|format(p.end_time|int, ((p.end_time - (p.end_time|int)) * 60)|round|int) }}</td>
+                  <td align="right"><button type="button" class="btn ghost small period-delete" data-id="{{ p.id }}">×</button></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="tiny muted" id="noPeriodsMsg">No periods yet.</p>
+        {% endif %}
+      </div>
+      <form id="periodForm" class="row gap8" style="flex-wrap:wrap;">
+        <input type="text" name="name" placeholder="Period 1" required style="flex:1 1 120px;">
+        <input type="text" name="start_time" placeholder="07:50" required style="width:90px;">
+        <input type="text" name="end_time" placeholder="08:30" required style="width:90px;">
+        <button type="submit" class="btn ghost small">+ Add period</button>
+      </form>
+      <p class="tiny muted mt8" id="periodErr" hidden style="color:var(--danger);"></p>
     </div>
 
     <div class="card mt24">

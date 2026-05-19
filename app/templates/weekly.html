@@ -39,11 +39,16 @@
     <div class="head{% if d == today %} today{% endif %}">{{ d.strftime('%a') }}<br><strong>{{ d.day }}</strong></div>
   {% endfor %}
 
-  <div class="hour-gutter">
+  <div class="hour-gutter" style="height: {{ (hours|length) * 48 }}px;">
+    {# Labels are absolutely positioned at i * 48px from the top, with
+       transform: translateY(-50%) centring each one ON the boundary line
+       between two hours. That way clicking on the visible "08:00" text
+       lands the cursor at y=48 in the day-col (= 8:00 exactly), not at
+       y=51-52 (= ~8:05) the way the stacked-rows layout did. #}
     {% for h in hours %}
-      <div class="hour-label">
-        <span data-hour="{{ h }}">{{ '%02d:00'|format(h) }}</span>
-      </div>
+      <span class="hour-label{% if loop.first %} first{% endif %}"
+            style="top: {{ loop.index0 * 48 }}px;"
+            data-hour="{{ h }}">{{ '%02d:00'|format(h) }}</span>
     {% endfor %}
   </div>
 
@@ -68,18 +73,19 @@
   "kinds": [
     {"value":"subject","label":"Subject"},
     {"value":"extracurricular","label":"Extracurricular"},
-    {"value":"appointment","label":"Appointment"},
-    {"value":"study","label":"Study"},
+    {"value":"study_block","label":"Study block (designated)"},
     {"value":"other","label":"Other"}
   ],
   "recurrences": [
     {"value":"none","label":"Just this date"},
     {"value":"daily","label":"Every day"},
+    {"value":"weekdays","label":"Every weekday (Mon–Fri)"},
     {"value":"weekly","label":"Every week"},
     {"value":"fortnightly","label":"Every 2 weeks"},
     {"value":"monthly","label":"Every month"},
     {"value":"yearly","label":"Every year"}
   ],
+  "default_recurrence": "fortnightly",
   "time_format": {{ user.preferences.time_format|tojson }}
 }
 </script>
@@ -112,6 +118,13 @@
           <select name="recurrence"></select>
         </div>
         <div class="form-row">
+          <label>Use a preset</label>
+          <select name="period_preset">
+            <option value="">— None —</option>
+          </select>
+          <div class="tiny muted">Period bell times from Settings.</div>
+        </div>
+        <div class="form-row">
           <label>Start</label>
           <input type="text" name="start_display" placeholder="9:30am" required>
           <input type="hidden" name="start_time">
@@ -124,12 +137,6 @@
         <div class="form-row">
           <label>First occurrence</label>
           <input type="date" name="anchor_date" required>
-        </div>
-        <div class="form-row">
-          <label class="row gap8" style="margin:0;">
-            <input type="checkbox" name="is_study_period">
-            <span>Study period (counts as free time)</span>
-          </label>
         </div>
       </div>
       <div class="modal-errors" id="evErrors" hidden></div>
