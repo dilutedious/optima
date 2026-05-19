@@ -19,12 +19,28 @@ from typing import List, Optional
 
 # Recognised values for Constraint.recurrence — these dictate how a single
 # stored Constraint expands into many occurrences in the weekly/monthly view.
-RECURRENCES = ("none", "daily", "weekly", "fortnightly", "monthly", "yearly")
+# "weekdays" = every Mon-Fri (school-week pattern); useful for classes that
+# happen daily on weekdays but not weekends.
+RECURRENCES = ("none", "daily", "weekdays", "weekly", "fortnightly", "monthly", "yearly")
 
-# Recognised values for Constraint.kind — drives the icon/label and lets
-# users filter by category. "subject" remains the default so seeded data
-# (classes, study periods) keeps its meaning.
-EVENT_KINDS = ("subject", "extracurricular", "appointment", "study", "other")
+# Recognised values for Constraint.kind — drives the icon/label and what the
+# scheduler is allowed to do with the time. "study_block" is the *only* kind
+# the auto-scheduler will use as a designated study zone (round-4 feedback);
+# everything else is a hard blocker.
+EVENT_KINDS = ("subject", "extracurricular", "study_block", "other")
+
+# Recognised values for Assignment.type — only "exam" surfaces the weighting %
+# input on the task form. Everything else is scored from importance.
+TASK_TYPES = ("homework", "exam", "project")
+
+# Recognised values for Assignment.importance — applied when type != exam.
+TASK_IMPORTANCE = ("low", "medium", "high")
+
+# Numeric weighting equivalents used by the priority calculator when a task
+# has no explicit weighting % (i.e. type is homework or project). Tuned so
+# importance=high is comparable to a heavy exam, importance=low is comparable
+# to a quiz-sized assessment.
+IMPORTANCE_WEIGHTING = {"low": 10.0, "medium": 25.0, "high": 50.0}
 
 
 @dataclass
@@ -131,6 +147,9 @@ class Constraint:
             return delta == 0
         if self.recurrence == "daily":
             return True
+        if self.recurrence == "weekdays":
+            # Mon-Fri only. weekday() returns 0..6 (Mon..Sun).
+            return target.weekday() < 5
         if self.recurrence == "weekly":
             return delta % 7 == 0
         if self.recurrence == "fortnightly":
@@ -163,14 +182,24 @@ class Constraint:
         }
 
 
+DEFAULT_DUE_TIME = 9.0   # 09:00 when the user leaves the time field blank
+
+
 @dataclass
 class Assignment:
     id: int
     subject_id: int
     name: str
     due_date: str          # ISO yyyy-mm-dd
-    weighting: float       # 0..100
     hours_required: float
+    weighting: float = 0.0  # 0..100, only meaningful for type == "exam"
+    type: str = "homework"  # see TASK_TYPES
+    importance: str = "medium"  # see TASK_IMPORTANCE (applied when type != exam)
+    show_stretch_line: bool = True   # render a coloured bar across the monthly view
+    # Time of day the task is due, decimal hours. 09:00 by default — the
+    # client picked it as "start of school day". Combined with due_date this
+    # gives the precise due_at datetime the scheduler / priority calc use.
+    due_time: float = DEFAULT_DUE_TIME
     est_hours: float = 0.0
     completion_percent: float = 0.0
     completed: bool = False
@@ -185,21 +214,70 @@ class Assignment:
         due = datetime.strptime(self.due_date, "%Y-%m-%d").date()
         return (due - today).days
 
+    def due_at(self) -> datetime:
+        """Combine due_date + due_time into a single naive datetime.
+
+        Naive (no tzinfo) because the whole app runs in the user's local
+        clock and we never persist a tz; comparing against
+        ``datetime.now()`` does the right thing.
+        """
+        d = datetime.strptime(self.due_date, "%Y-%m-%d")
+        h = int(self.due_time)
+        m = int(round((self.due_time - h) * 60))
+        if m == 60:
+            h += 1
+            m = 0
+        # Clamp the hour to 0..23 — the form already validates this but we
+        # don't want a corrupt save to crash everyone.
+        h = max(0, min(23, h))
+        return d.replace(hour=h, minute=m)
+
+    def hours_until_due(self, now: Optional[datetime] = None) -> float:
+        """Signed hours until the due datetime — negative when overdue."""
+        now = now or datetime.now()
+        return (self.due_at() - now).total_seconds() / 3600.0
+
+    def is_overdue(self, now: Optional[datetime] = None) -> bool:
+        if self.completed:
+            return False
+        return self.hours_until_due(now) < 0
+
     def remaining_hours(self) -> float:
         return max(0.0, self.hours_required * (1.0 - self.completion_percent))
+
+    def scoring_weight(self) -> float:
+        """The numeric weight fed into the priority formula.
+
+        For exams we use the user-entered weighting %. For homework/project
+        we read off the importance map so a 'high' homework competes with a
+        mid-sized exam, a 'low' homework competes with a quiz, etc.
+        """
+        if self.type == "exam":
+            return float(self.weighting)
+        return IMPORTANCE_WEIGHTING.get(self.importance, IMPORTANCE_WEIGHTING["medium"])
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "Assignment":
+        t = d.get("type", "homework")
+        if t not in TASK_TYPES:
+            t = "homework"
+        imp = d.get("importance", "medium")
+        if imp not in TASK_IMPORTANCE:
+            imp = "medium"
         return cls(
             id=int(d["id"]),
             subject_id=int(d["subject_id"]),
             name=d["name"],
             due_date=d["due_date"],
-            weighting=float(d["weighting"]),
+            weighting=float(d.get("weighting", 0.0)),
             hours_required=float(d["hours_required"]),
+            type=t,
+            importance=imp,
+            show_stretch_line=bool(d.get("show_stretch_line", True)),
+            due_time=float(d.get("due_time", DEFAULT_DUE_TIME)),
             est_hours=float(d.get("est_hours", 0.0)),
             completion_percent=float(d.get("completion_percent", 0.0)),
             completed=bool(d.get("completed", False)),
@@ -210,13 +288,21 @@ class Assignment:
 
 @dataclass
 class ScheduleBlock:
-    """A block of time allocated for study on a particular assignment."""
+    """A block of time allocated for study on a particular assignment.
+
+    ``is_break`` distinguishes the small "rest" gaps the scheduler inserts
+    between back-to-back study sessions inside a single designated zone.
+    Breaks are rendered implicitly on the weekly grid (i.e. as empty space)
+    but the day-hover tooltip lists them so the user can see *when* the
+    rest is and how long.
+    """
 
     assignment_id: int
     date_iso: str          # yyyy-mm-dd
     start_time: float
     duration: float        # hours
     completed: bool = False
+    is_break: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -229,6 +315,34 @@ class ScheduleBlock:
             start_time=float(d["start_time"]),
             duration=float(d["duration"]),
             completed=bool(d.get("completed", False)),
+            is_break=bool(d.get("is_break", False)),
+        )
+
+
+@dataclass
+class Period:
+    """A reusable time-of-day preset (Period 1, Period 2, ...) used to
+    pre-fill the event editor so the user doesn't retype the same times.
+
+    Pure user data — has no effect on scheduling. The weekly editor's
+    "Use preset" dropdown lists these.
+    """
+
+    id: int
+    name: str
+    start_time: float    # decimal hours
+    end_time: float
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Period":
+        return cls(
+            id=int(d["id"]),
+            name=str(d["name"])[:60],
+            start_time=float(d["start_time"]),
+            end_time=float(d["end_time"]),
         )
 
 
@@ -259,13 +373,20 @@ class User:
     password_hash: str
     salt: str
     study_points: int = 0
+    # Wake / bed are the *broad* awake window — used as the outer envelope
+    # for the weekly grid render. Sleep is the explicit "do not schedule"
+    # range (round-4 feedback: the scheduler kept placing study blocks at
+    # 2 AM because the awake window was effectively the whole day).
     wake_time: float = 6.5
-    bed_time: float = 22.5
+    bed_time: float = 23.0
+    sleep_start: float = 22.5         # do-not-schedule starts here
+    sleep_end: float = 6.5             # ... and ends here the next morning
     term_start: str = ""              # ISO date when Week A starts
     subjects: List[Subject] = field(default_factory=list)
     constraints: List[Constraint] = field(default_factory=list)
     assignments: List[Assignment] = field(default_factory=list)
     schedule_blocks: List[ScheduleBlock] = field(default_factory=list)
+    periods: List[Period] = field(default_factory=list)
     preferences: Preferences = field(default_factory=Preferences)
 
     def to_dict(self) -> dict:
@@ -276,11 +397,14 @@ class User:
             "study_points": self.study_points,
             "wake_time": self.wake_time,
             "bed_time": self.bed_time,
+            "sleep_start": self.sleep_start,
+            "sleep_end": self.sleep_end,
             "term_start": self.term_start,
             "subjects": [s.to_dict() for s in self.subjects],
             "constraints": [c.to_dict() for c in self.constraints],
             "assignments": [a.to_dict() for a in self.assignments],
             "schedule_blocks": [b.to_dict() for b in self.schedule_blocks],
+            "periods": [p.to_dict() for p in self.periods],
             "preferences": self.preferences.to_dict(),
         }
 
@@ -292,12 +416,15 @@ class User:
             salt=d["salt"],
             study_points=int(d.get("study_points", 0)),
             wake_time=float(d.get("wake_time", 6.5)),
-            bed_time=float(d.get("bed_time", 22.5)),
+            bed_time=float(d.get("bed_time", 23.0)),
+            sleep_start=float(d.get("sleep_start", 22.5)),
+            sleep_end=float(d.get("sleep_end", 6.5)),
             term_start=d.get("term_start", ""),
             subjects=[Subject.from_dict(x) for x in d.get("subjects", [])],
             constraints=[Constraint.from_dict(x) for x in d.get("constraints", [])],
             assignments=[Assignment.from_dict(x) for x in d.get("assignments", [])],
             schedule_blocks=[ScheduleBlock.from_dict(x) for x in d.get("schedule_blocks", [])],
+            periods=[Period.from_dict(x) for x in d.get("periods", [])],
             preferences=Preferences.from_dict(d.get("preferences", {})),
         )
 
@@ -309,6 +436,9 @@ class User:
 
     def next_constraint_id(self) -> int:
         return max((c.id for c in self.constraints), default=0) + 1
+
+    def next_period_id(self) -> int:
+        return max((p.id for p in self.periods), default=0) + 1
 
     def subject_by_id(self, sid: int) -> Optional[Subject]:
         for s in self.subjects:
@@ -322,39 +452,8 @@ class User:
                 return c
         return None
 
-    def migrate_constraints(self) -> bool:
-        """Heal legacy data shapes after a User has been deserialised.
-
-        Older user files stored constraints with only ``day_of_fortnight`` and
-        no id or anchor_date. Once we know the user's term_start we can
-        synthesise a sensible anchor (the first calendar date on which that
-        day-of-fortnight index falls on/after term_start) and assign stable
-        ids so the new editor can target them.
-
-        Returns True if anything was changed (the caller can save in that
-        case).
-        """
-        changed = False
-        used_ids = {c.id for c in self.constraints if c.id}
-        next_id = max(used_ids, default=0) + 1
-        try:
-            term_start = datetime.strptime(self.term_start, "%Y-%m-%d").date() if self.term_start else None
-        except ValueError:
-            term_start = None
-        for c in self.constraints:
-            if not c.id:
-                c.id = next_id
-                next_id += 1
-                changed = True
-            if not c.anchor_date and term_start is not None:
-                # Walk forward from term_start until day-of-fortnight matches.
-                target = term_start + timedelta(days=c.day_of_fortnight)
-                c.anchor_date = target.isoformat()
-                changed = True
-            if c.recurrence not in RECURRENCES:
-                c.recurrence = "weekly"
-                changed = True
-            if c.kind not in EVENT_KINDS:
-                c.kind = "study" if c.is_study_period else "subject"
-                changed = True
-        return changed
+    def period_by_id(self, pid: int) -> Optional[Period]:
+        for p in self.periods:
+            if p.id == pid:
+                return p
+        return None
