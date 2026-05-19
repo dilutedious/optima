@@ -17,7 +17,8 @@ about, which matched the agile / iterate-on-feedback approach in the planning.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from bisect import insort
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Iterable, List, Optional
 
@@ -31,11 +32,19 @@ MAX_SESSION = 2.0
 BREAK_AFTER_SESSION = 0.25     # 15 min break before next study block
 
 
-@dataclass
+@dataclass(order=True)
 class FreeSlot:
+    """An open interval of unoccupied time on a single date.
+
+    The dataclass is `order=True` so a list of FreeSlots can be kept in
+    canonical (date, start) order via `bisect.insort` — O(log n) insertion
+    after a residual slot is carved out by the placer, rather than
+    re-sorting the whole list each time.
+    """
+
     date_iso: str
     start: float
-    end: float
+    end: float = field(compare=False)
 
     @property
     def length(self) -> float:
@@ -53,7 +62,7 @@ class ScheduleResult:
 
 
 def _day_of_fortnight(term_start_iso: str, target: date) -> int:
-    """Index 0..13 — assumes Week A starts on the term_start date."""
+    """Index 0..13 — retained for callers that still think in week-A/week-B terms."""
     if not term_start_iso:
         return 0
     start = datetime.strptime(term_start_iso, "%Y-%m-%d").date()
@@ -64,8 +73,9 @@ def _day_of_fortnight(term_start_iso: str, target: date) -> int:
     return days % 14
 
 
-def _constraints_for_day(user: User, day_idx: int) -> List[Constraint]:
-    return [c for c in user.constraints if c.day_of_fortnight == day_idx]
+def _constraints_on_date(user: User, target: date) -> List[Constraint]:
+    """All constraints whose recurrence places an occurrence on ``target``."""
+    return [c for c in user.constraints if c.occurs_on(target)]
 
 
 def _round_slot(value: float) -> float:
@@ -79,12 +89,12 @@ def _free_slots_for_day(
 ) -> List[FreeSlot]:
     """Slots between wake_time and bed_time not occupied by constraints/blocks."""
 
-    day_idx = _day_of_fortnight(user.term_start, day)
     occupied: List[tuple[float, float]] = []
-    for c in _constraints_for_day(user, day_idx):
+    for c in _constraints_on_date(user, day):
         if c.is_study_period:
             continue
-        occupied.append((c.start_time, c.end_time))
+        view = c.occurrence_view(day)
+        occupied.append((view["start_time"], view["end_time"]))
     iso = day.isoformat()
     for b in existing_blocks:
         if b.date_iso == iso:
@@ -161,15 +171,17 @@ def generate_schedule(user: User, horizon_days: int = 14, today: Optional[date] 
                     f"'{assign.name}' is due before all required hours can fit — consider increasing study time or reducing scope."
                 )
                 break
-            slots = free_by_day.get(day.isoformat(), [])
-            i = 0
-            while i < len(slots) and remaining > 0:
-                slot = slots[i]
-                length = min(slot.length, MAX_SESSION, remaining)
-                if length < MIN_SESSION:
-                    i += 1
+
+            # Maintain free slots for this day as a sorted list by start time;
+            # residual slices are re-inserted with bisect.insort (O(log n)).
+            slots: List[FreeSlot] = free_by_day.get(day.isoformat(), [])
+            while slots and remaining > 0:
+                slot = slots.pop(0)                # earliest free slot
+                if slot.length < MIN_SESSION:
                     continue
-                length = _round_slot(length)
+                length = _round_slot(min(slot.length, MAX_SESSION, remaining))
+                if length < MIN_SESSION:
+                    continue
                 block = ScheduleBlock(
                     assignment_id=assign.id,
                     date_iso=day.isoformat(),
@@ -178,14 +190,10 @@ def generate_schedule(user: User, horizon_days: int = 14, today: Optional[date] 
                 )
                 new_blocks.append(block)
                 remaining -= length
-                # Slice the slot to reflect the block + a short break.
+                # Re-insert the residual interval if any meaningful time remains.
                 new_start = _round_slot(slot.start + length + BREAK_AFTER_SESSION)
                 if new_start + MIN_SESSION <= slot.end:
-                    slots[i] = FreeSlot(slot.date_iso, new_start, slot.end)
-                else:
-                    slots.pop(i)
-                    continue
-                i += 0  # keep examining the trimmed slot
+                    insort(slots, FreeSlot(slot.date_iso, new_start, slot.end))
 
     # Recompute residual free slots after placement, for the cushion gauge.
     all_free = []
