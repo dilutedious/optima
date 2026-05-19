@@ -1,0 +1,148 @@
+{
+  "username": "jcorpus3",
+  "password_hash": "bb94201aaea9f3a458a711b3cac96acbfb755fc47bbffcb580fe3acb3e965fe3",
+  "salt": "0cb8a80c34c189ce4bcbdc621cadd982",
+  "study_points": 20,
+  "wake_time": 6.5,
+  "bed_time": 22.5,
+  "term_start": "2026-05-11",
+  "subjects": [
+    {
+      "id": 1,
+      "name": "English",
+      "colour": "#E5764C"
+    },
+    {
+      "id": 3,
+      "name": "Software Engineering",
+      "colour": "#7B68EE"
+    },
+    {
+      "id": 4,
+      "name": "Physics",
+      "colour": "#36B37E"
+    },
+    {
+      "id": 5,
+      "name": "Chemistry",
+      "colour": "#7B68EE"
+    }
+  ],
+  "constraints": [
+    {
+      "id": 1,
+      "name": "Chemistry",
+      "subject_id": 5,
+      "start_time": 8.833333333333334,
+      "end_time": 10.5,
+      "anchor_date": "2026-05-18",
+      "recurrence": "fortnightly",
+      "kind": "subject",
+      "skip_dates": [],
+      "overrides": {},
+      "day_of_fortnight": 0,
+      "is_half_period": false,
+      "is_study_period": false
+    },
+    {
+      "id": 2,
+      "name": "Study",
+      "subject_id": null,
+      "start_time": 11.0,
+      "end_time": 12.666666666666666,
+      "anchor_date": "2026-05-18",
+      "recurrence": "weekly",
+      "kind": "study",
+      "skip_dates": [],
+      "overrides": {},
+      "day_of_fortnight": 0,
+      "is_half_period": false,
+      "is_study_period": true
+    },
+    {
+      "id": 3,
+      "name": "English",
+      "subject_id": 1,
+      "start_time": 1.1666666666666667,
+      "end_time": 2.8333333333333335,
+      "anchor_date": "2026-05-18",
+      "recurrence": "fortnightly",
+      "kind": "subject",
+      "skip_dates": [],
+      "overrides": {},
+      "day_of_fortnight": 0,
+      "is_half_period": false,
+      "is_study_period": false
+    },
+    {
+      "id": 4,
+      "name": "English",
+      "subject_id": 1,
+      "start_time": 13.166666666666666,
+      "end_time": 14.833333333333334,
+      "anchor_date": "2026-05-18",
+      "recurrence": "fortnightly",
+      "kind": "subject",
+      "skip_dates": [],
+      "overrides": {},
+      "day_of_fortnight": 0,
+      "is_half_period": false,
+      "is_study_period": false
+    },
+    {
+      "id": 5,
+      "name": "Physics",
+      "subject_id": 4,
+      "start_time": 8.833333333333334,
+      "end_time": 10.5,
+      "anchor_date": "2026-05-19",
+      "recurrence": "fortnightly",
+      "kind": "subject",
+      "skip_dates": [],
+      "overrides": {},
+      "day_of_fortnight": 0,
+      "is_half_period": false,
+      "is_study_period": false
+    },
+    {
+      "id": 6,
+      "name": "Morning",
+      "subject_id": null,
+      "start_time": 7.0,
+      "end_time": 8.0,
+      "anchor_date": "2026-05-18",
+      "recurrence": "daily",
+      "kind": "other",
+      "skip_dates": [],
+      "overrides": {},
+      "day_of_fortnight": 0,
+      "is_half_period": false,
+      "is_study_period": false
+    }
+  ],
+  "assignments": [
+    {
+      "id": 1,
+      "subject_id": 3,
+      "name": "Software Engineering",
+      "due_date": "2026-05-29",
+      "weighting": 20.0,
+      "hours_required": 8.0,
+      "est_hours": 8.0,
+      "completion_percent": 1.0,
+      "completed": true,
+      "priority_score": 0.0,
+      "private_notes_encrypted": "WhMdX7UXrtReQ-3Rjewo4ORmr3h1ol-wuRUKwfdj0s7hPbeBu83nYB1op1iOi6BwbpDcUuIaFx9k4oSz-l2IoDDODySZLAlH64QRq684fWjl_DLZC526OWmdedP9AJ7UkAg="
+    }
+  ],
+  "schedule_blocks": [],
+  "preferences": {
+    "theme": "light",
+    "notifications": true,
+    "auto_save": true,
+    "high_contrast": false,
+    "focus_highlights": true,
+    "zoom": 90,
+    "time_format": "24h"
+  }
+}

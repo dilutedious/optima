@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Optima — Create account{% endblock %}
+{% block layout %}
+<div class="center-screen">
+  <form class="auth-card" method="post" action="{{ url_for('signup') }}">
+    <div class="logo-row">
+      <div class="logo-big" style="width:56px;height:56px;border-radius:14px;background:var(--primary);color:#fff;font-size:24px;display:grid;place-items:center;">○</div>
+    </div>
+    <h1>Create your account</h1>
+    <p class="sub">It only takes a second.</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flashes">
+          {% for cat, msg in messages %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    <div class="form-row">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" value="{{ username }}" placeholder="username" autocomplete="username" required autofocus>
+    </div>
+    <div class="form-row">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="new-password" required>
+    </div>
+    <div class="form-row">
+      <label for="confirm">Confirm password</label>
+      <input type="password" id="confirm" name="confirm" autocomplete="new-password" required>
+    </div>
+    <button type="submit" class="btn" style="width:100%;justify-content:center;">Create account</button>
+    <p class="tiny muted" style="text-align:center;margin-top:14px;">
+      Already have one? <a href="{{ url_for('login') }}">Sign in</a>
+    </p>
+  </form>
+</div>
+{% endblock %}

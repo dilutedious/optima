@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% set active = 'dashboard' %}
+{% block title %}{{ 'Edit' if task else 'Add' }} task — Optima{% endblock %}
+{% block content %}
+<div class="page-header"><h1>{{ 'Edit' if task else 'Add' }} task</h1></div>
+
+<div class="card" style="max-width: 720px;">
+  <form method="post">
+    <div class="form-grid">
+      <div class="form-row">
+        <label>Name</label>
+        <input type="text" name="name" value="{{ task.name if task else '' }}" required autofocus>
+      </div>
+      <div class="form-row">
+        <label>Subject</label>
+        <select name="subject_id">
+          {% for s in user.subjects %}
+            <option value="{{ s.id }}" {% if task and task.subject_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Due date</label>
+        <input type="date" name="due_date" value="{{ task.due_date if task else '' }}" required>
+      </div>
+      <div class="form-row">
+        <label>Weighting (%)</label>
+        <input type="number" name="weighting" min="0" max="100" step="0.5" value="{{ task.weighting if task else 20 }}" required>
+      </div>
+      <div class="form-row">
+        <label>Estimated time required</label>
+        {# Splits hours_required into H + M inputs so users can enter minute-precise
+           durations. The backend converts these to a decimal-hours float and
+           keeps using that value for scheduling — UI representation only. #}
+        {% set hh = (task.hours_required|int) if task else 8 %}
+        {% set mm = ((task.hours_required - (task.hours_required|int)) * 60)|round(0)|int if task else 0 %}
+        <div class="hm-input">
+          <input type="number" name="hours_required_h" min="0" max="200" step="1" value="{{ hh }}" aria-label="Hours">
+          <span class="muted tiny">h</span>
+          <input type="number" name="hours_required_m" min="0" max="59" step="5" value="{{ mm }}" aria-label="Minutes">
+          <span class="muted tiny">min</span>
+        </div>
+        <div class="tiny muted">Stored as decimal hours for scheduling — you can type either H+M or use 0 hours and just minutes.</div>
+      </div>
+      {% if task %}
+      <div class="form-row">
+        <label>Completion %</label>
+        <input type="number" name="completion_percent" min="0" max="1" step="0.05" value="{{ task.completion_percent }}">
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="form-row" style="margin-top:14px;">
+      <label>
+        Private notes &nbsp;
+        <span class="tiny muted" style="font-weight:400;">
+          🔒 Encrypted at rest with a key derived from your password. Only readable while you're signed in.
+        </span>
+      </label>
+      <textarea name="private_notes" rows="3"
+                placeholder="Anything sensitive you want to remember about this task — won't be readable to anyone with the JSON file but not your password.">{{ private_notes_plain or '' }}</textarea>
+    </div>
+
+    <div class="row mt16" style="justify-content:flex-end; gap:8px;">
+      <a class="btn ghost" href="{{ url_for('dashboard') }}">Cancel</a>
+      {% if task %}
+      <button name="action" value="delete" class="btn danger" onclick="return confirm('Delete this task?');">Delete</button>
+      {% endif %}
+      <button class="btn">{{ 'Save changes' if task else 'Create task' }}</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

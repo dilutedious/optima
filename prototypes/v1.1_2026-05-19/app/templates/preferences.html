@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% set active = 'preferences' %}
+{% block title %}Preferences — Optima{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Settings &amp; Preferences</h1></div>
+<p class="page-sub">All saved locally to your profile.</p>
+
+<div class="grid-2">
+  <div>
+    <div class="card">
+      <h2>Appearance</h2>
+      <form method="post" action="{{ url_for('preferences') }}">
+        <div class="pref-row">
+          <div>
+            <div class="lbl">Theme</div>
+            <div class="desc">Light is default; switch to dark for low-light sessions.</div>
+          </div>
+          <div class="theme-pick">
+            <label><input type="radio" name="theme" value="light" {% if user.preferences.theme == 'light' %}checked{% endif %}><span>Light</span></label>
+            <label><input type="radio" name="theme" value="dark"  {% if user.preferences.theme == 'dark'  %}checked{% endif %}><span>Dark</span></label>
+          </div>
+        </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">Time format</div>
+            <div class="desc">How times appear on the weekly view and elsewhere. Storage is always 24-hour decimals.</div>
+          </div>
+          <div class="theme-pick">
+            <label><input type="radio" name="time_format" value="24h" {% if user.preferences.time_format == '24h' %}checked{% endif %}><span>24-hour</span></label>
+            <label><input type="radio" name="time_format" value="12h" {% if user.preferences.time_format == '12h' %}checked{% endif %}><span>12-hour</span></label>
+          </div>
+        </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">High contrast</div>
+            <div class="desc">Boost contrast for readability.</div>
+          </div>
+          <label class="toggle"><input type="checkbox" name="high_contrast" {% if user.preferences.high_contrast %}checked{% endif %}><span class="slider"></span></label>
+        </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">Focus highlights (Tab)</div>
+            <div class="desc">Show vivid outline when navigating with Tab.</div>
+          </div>
+          <label class="toggle"><input type="checkbox" name="focus_highlights" {% if user.preferences.focus_highlights %}checked{% endif %}><span class="slider"></span></label>
+        </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">Notifications</div>
+            <div class="desc">Reminders ahead of deadlines.</div>
+          </div>
+          <label class="toggle"><input type="checkbox" name="notifications" {% if user.preferences.notifications %}checked{% endif %}><span class="slider"></span></label>
+        </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">Auto-save</div>
+            <div class="desc">Persist changes as you make them.</div>
+          </div>
+          <label class="toggle"><input type="checkbox" name="auto_save" {% if user.preferences.auto_save %}checked{% endif %}><span class="slider"></span></label>
+        </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">Zoom</div>
+            <div class="desc">75–150%. Useful on small screens or for low-vision users.</div>
+          </div>
+          <div class="row">
+            <input type="number" name="zoom" min="75" max="150" step="5" value="{{ user.preferences.zoom }}" style="width:90px;">
+            <span class="muted tiny">%</span>
+          </div>
+        </div>
+        <div class="pref-row">
+          <div>
+            <div class="lbl">Term start (Week A, Day 0)</div>
+            <div class="desc">Anchor date that fortnightly classes line up against. Existing events are not moved.</div>
+          </div>
+          <div class="row">
+            <input type="date" name="term_start" value="{{ user.term_start }}" style="width:170px;">
+          </div>
+        </div>
+        <div class="row mt16" style="justify-content:flex-end;">
+          <button type="submit" class="btn">Save preferences</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card mt24">
+      <h2>Subjects</h2>
+      <div class="row wrap gap8" style="margin-bottom: 12px;">
+        {% for s in user.subjects %}
+          <span class="subject-chip">
+            <span class="dot" style="background: {{ s.colour }}"></span>{{ s.name }}
+            <form method="post" action="{{ url_for('delete_subject', subject_id=s.id) }}" style="display:inline;margin-left:6px;">
+              <button class="btn ghost small" style="padding:0 4px;">×</button>
+            </form>
+          </span>
+        {% endfor %}
+      </div>
+      <form method="post" action="{{ url_for('new_subject') }}">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Name</label>
+            <input type="text" name="name" placeholder="e.g. English Extension" required>
+          </div>
+          <div class="form-row">
+            <label>Colour</label>
+            <input type="text" name="colour" placeholder="#7B68EE" value="#7B68EE">
+          </div>
+        </div>
+        <button class="btn ghost small">+ Add subject</button>
+      </form>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Classes &amp; fixed events</h2>
+      <p class="tiny muted">
+        Classes, extracurriculars, and appointments are added straight on the
+        weekly view now — click an empty slot to drop a new event, click an
+        existing one to edit, drag to move, or shift-click to select multiple
+        at a time.
+      </p>
+      <a class="btn" href="{{ url_for('weekly') }}">Open weekly editor</a>
+      {% if user.constraints %}
+        <p class="tiny muted mt16">{{ user.constraints|length }} recurring event{{ '' if user.constraints|length == 1 else 's' }} currently saved.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
