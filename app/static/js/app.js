@@ -23,7 +23,12 @@
   applyPrefs(fromAttr);
   try { localStorage.setItem("optima.prefs", JSON.stringify(fromAttr)); } catch (e) {}
 
-  // Toggle progress sliders inline on the dashboard
+  // Toggle progress sliders inline on the dashboard. We update three
+  // bits of UI on every input tick so the user sees their drag reflected
+  // immediately — the bar fill, the "%" label next to the slider, and
+  // the "h left" figure inside the task's sub-line. The actual save is
+  // deferred to the 'change' event below so we don't fire a request on
+  // every pixel of drag.
   document.addEventListener("input", function (e) {
     const t = e.target;
     if (t && t.classList.contains("progress-slider")) {
@@ -31,6 +36,14 @@
       const value = parseFloat(t.value) / 100;
       const bar = document.querySelector(`[data-progress-bar="${taskId}"]`);
       if (bar) bar.style.width = (value * 100) + "%";
+      const pctEl = document.querySelector(`[data-task-pct-label="${taskId}"]`);
+      if (pctEl) pctEl.textContent = Math.round(value * 100) + "%";
+      const hLeftEl = document.querySelector(`[data-task-h-left="${taskId}"]`);
+      const hoursRequired = parseFloat(t.getAttribute("data-hours-required") || "0");
+      if (hLeftEl && isFinite(hoursRequired)) {
+        const remaining = Math.max(0, hoursRequired * (1 - value));
+        hLeftEl.textContent = remaining.toFixed(1);
+      }
       // Throttle save: only persist on change end, not every tick.
       t.dataset.pending = "1";
     }

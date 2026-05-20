@@ -195,7 +195,8 @@ a:hover { text-decoration: underline; }
 
 /* Forms */
 label { display: block; font-weight: 500; font-size: 14px; margin-bottom: 6px; color: var(--text-muted); }
-input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="date"], select, textarea {
+input[type="text"], input[type="email"], input[type="password"], input[type="number"],
+input[type="date"], input[type="time"], select, textarea {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -205,6 +206,33 @@ input[type="text"], input[type="email"], input[type="password"], input[type="num
   font: inherit;
   outline: none;
   transition: border-color 120ms ease, box-shadow 120ms ease;
+  /* Force the system date / time pickers to honour our height + radius
+     by clipping the native picker indicator. Browsers vary; this gets us
+     consistent across Chrome / Safari / Firefox. */
+  line-height: 1.3;
+  box-sizing: border-box;
+  min-height: 42px;
+}
+select {
+  /* Browser defaults add an extra arrow inside the padding; reserve space
+     so the dropdown text doesn't run under it. */
+  padding-right: 36px;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='none' stroke='%236b6b80' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M1 1l5 5 5-5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 8px;
+}
+html[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='none' stroke='%239a9ab2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M1 1l5 5 5-5'/></svg>");
+}
+/* The time-picker indicator (clock icon on Chromium) hugs the right edge
+   awkwardly; nudging it inward keeps it inside our rounded border. */
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.55;
+  margin-right: 2px;
 }
 input:focus, select:focus, textarea:focus {
   border-color: var(--primary);
@@ -221,9 +249,13 @@ html[data-focus="on"] button:focus-visible {
 .form-row { margin-bottom: 14px; }
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+  align-items: start;
 }
+.form-grid .form-row { margin-bottom: 0; }
+.form-grid .form-row > label { line-height: 1.2; }
+.form-grid .form-row > .tiny { margin-top: 4px; }
 
 /* Flash messages */
 .flashes { margin-bottom: 16px; }
@@ -370,6 +402,17 @@ html[data-theme="dark"] .flash.ok    { background: #1a3a25; color: #c0eed1; bord
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+.task .crit-tag.overdue-tag {
+  background: #2a1010;
+  color: #ffbcbc;
+}
+.task.overdue {
+  border-color: var(--danger);
+  background: linear-gradient(90deg, rgba(214, 69, 69, 0.10), var(--surface) 30%);
+}
+.task.overdue .pri.crit {
+  color: var(--danger);
+}
 
 /* Cushion gauge (donut SVG) */
 .cushion {
@@ -431,34 +474,77 @@ html[data-theme="dark"] .flash.ok    { background: #1a3a25; color: #c0eed1; bord
   border-radius: var(--radius);
   padding: 12px;
 }
-.month-grid {
+.month-dow-row {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 6px;
+  margin-bottom: 6px;
 }
-.month-grid .day {
-  min-height: 96px;
+.month-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  position: relative;
+  margin-bottom: 6px;
+}
+.month .day {
+  min-height: 120px;
   background: var(--surface-2);
   border-radius: 10px;
   padding: 8px;
   border: 1px solid transparent;
+  position: relative;
+  z-index: 0;
 }
-.month-grid .day.today { border-color: var(--primary); }
-.month-grid .day.faded { opacity: 0.35; }
-.month-grid .day .num { font-weight: 600; font-size: 13px; }
-.month-grid .day .ev {
+.month .day.today { border-color: var(--primary); }
+.month .day.faded { opacity: 0.35; }
+.month .day .num { font-weight: 600; font-size: 13px; }
+.month .day .day-body {
+  margin-top: 4px;
+  /* Push the body below the stretch-bar lanes (28 + 6 lanes * 6px = 64px) */
+  padding-top: 36px;
+}
+.month .day .ev {
   display: flex;
   gap: 6px;
   align-items: center;
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 12px;
 }
-.month-grid .day .ev .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.month-grid .dow {
+.month .day .ev .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.month .dow {
   text-align: center;
   font-size: 12px;
   color: var(--text-muted);
   padding: 6px 0;
+}
+
+/* Assignment "stretch" bars overlaid on each month row */
+.month-row .stretch-bar {
+  position: absolute;
+  height: 4px;
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: default;
+  z-index: 2;
+  opacity: 0.85;
+  /* The width is calculated by Jinja but we trim by 8px so consecutive
+     same-colour bars don't read as one continuous line. */
+  margin: 0 4px;
+  transform: translateX(-4px);
+  box-sizing: border-box;
+}
+.month-row .stretch-bar:hover { opacity: 1; }
+.month .stretch-overflow {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 6px;
 }
 
 /* Preferences */

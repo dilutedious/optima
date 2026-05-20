@@ -26,7 +26,10 @@
     timeFormat: initialData.time_format,
     subjects: initialData.subjects,
     events: [],          // [{id, date, name, start_time, end_time, kind, recurrence, ...}]
-    blocks: [],          // read-only study blocks
+    blocks: [],          // read-only study + break blocks
+    periods: [],         // preset times from Settings
+    sleepStart: 22.5,
+    sleepEnd: 6.5,
     selection: new Set(),
     weekStart: new Date(grid.dataset.weekStart + "T00:00:00"),
   };
@@ -44,6 +47,18 @@
     const h = Math.floor(dec);
     const m = Math.round((dec - h) * 60);
     return { h: m === 60 ? h + 1 : h, m: m === 60 ? 0 : m };
+  }
+
+  // Pixels-per-hour as currently rendered. Derived from the day-col's
+  // ACTUAL height so the math is right regardless of the user's zoom
+  // pref — the constant HOUR_PX is CSS px, but e.clientY / rect.top are
+  // in zoomed viewport px, so dividing y by HOUR_PX gave the wrong hour
+  // count whenever zoom != 100%.
+  function dayHourPx(col) {
+    if (!col) return HOUR_PX;
+    const rect = col.getBoundingClientRect();
+    const hours = HOUR_END - HOUR_START;
+    return hours > 0 ? rect.height / hours : HOUR_PX;
   }
 
   function formatTime(dec) {
@@ -114,7 +129,10 @@
     state.events = data.events || [];
     state.blocks = data.blocks || [];
     state.subjects = data.subjects || state.subjects;
+    state.periods = data.periods || [];
     state.timeFormat = data.time_format || state.timeFormat;
+    if (typeof data.sleep_start === "number") state.sleepStart = data.sleep_start;
+    if (typeof data.sleep_end === "number") state.sleepEnd = data.sleep_end;
     paintHourLabels();
     render();
   }
@@ -163,7 +181,8 @@
   function render() {
     // Clear all event blocks but keep hour-row dividers.
     grid.querySelectorAll(".day-col").forEach((col) => {
-      col.querySelectorAll(".ev, .study-block").forEach((n) => n.remove());
+      col.querySelectorAll(".ev, .study-block, .sleep-overlay, .now-line").forEach((n) => n.remove());
+      paintSleepOverlay(col);
     });
 
     for (const ev of state.events) {
@@ -173,17 +192,92 @@
     }
     for (const b of state.blocks) {
       const col = dayCol(b.date);
-      if (!col) continue;
+      if (!col || b.is_break) continue;   // breaks are implicit on the grid
       col.appendChild(renderBlock(b));
     }
+    paintNowLine();
+    annotateBreaks();
     updateToolbar();
+  }
+
+  function paintNowLine() {
+    // Place a red horizontal line at the current time in today's column.
+    // Only renders if today is actually visible in the current week range.
+    const todayIso = grid.dataset.today;
+    const col = dayCol(todayIso);
+    if (!col) return;
+    col.querySelectorAll(".now-line").forEach((n) => n.remove());
+    const now = new Date();
+    const dec = now.getHours() + now.getMinutes() / 60;
+    if (dec < HOUR_START || dec > HOUR_END) return;
+    const line = document.createElement("div");
+    line.className = "now-line";
+    line.style.top = `${(dec - HOUR_START) * HOUR_PX}px`;
+    line.title = `Now · ${formatTime(dec)}`;
+    col.appendChild(line);
+  }
+
+  // Refresh the now-line once a minute. Tab might be inactive longer than
+  // that — the next visible refresh corrects it.
+  setInterval(paintNowLine, 60 * 1000);
+
+  function paintSleepOverlay(col) {
+    // The sleep window can wrap past midnight — split into two rectangles
+    // if it does. Each rectangle is clipped to the visible hour range.
+    const intervals = [];
+    if (state.sleepStart === state.sleepEnd) return;
+    if (state.sleepStart < state.sleepEnd) {
+      intervals.push([state.sleepStart, state.sleepEnd]);
+    } else {
+      intervals.push([state.sleepStart, 24]);
+      intervals.push([0, state.sleepEnd]);
+    }
+    for (const [s, e] of intervals) {
+      const clippedStart = Math.max(s, HOUR_START);
+      const clippedEnd = Math.min(e, HOUR_END);
+      if (clippedEnd <= clippedStart) continue;
+      const div = document.createElement("div");
+      div.className = "sleep-overlay";
+      div.title = `Sleep · ${formatTime(s)} – ${formatTime(e)}`;
+      div.style.top = `${(clippedStart - HOUR_START) * HOUR_PX}px`;
+      div.style.height = `${(clippedEnd - clippedStart) * HOUR_PX}px`;
+      col.appendChild(div);
+    }
+  }
+
+  function annotateBreaks() {
+    // For each day, build a tooltip listing planned breaks and any
+    // overlapping study-block intervals, then attach to the .day-col.
+    grid.querySelectorAll(".day-col").forEach((col) => {
+      const iso = col.dataset.date;
+      const breaks = state.blocks.filter((b) => b.date === iso && b.is_break);
+      const studies = state.blocks.filter((b) => b.date === iso && !b.is_break);
+      if (!breaks.length && !studies.length) {
+        col.removeAttribute("title");
+        return;
+      }
+      const lines = [];
+      if (studies.length) {
+        lines.push("Study sessions:");
+        for (const s of studies) {
+          lines.push(`  ${formatTime(s.start_time)} – ${formatTime(s.end_time)}  ${s.name}`);
+        }
+      }
+      if (breaks.length) {
+        lines.push("Breaks:");
+        for (const b of breaks) {
+          lines.push(`  ${formatTime(b.start_time)} – ${formatTime(b.end_time)}`);
+        }
+      }
+      col.title = lines.join("\n");
+    });
   }
 
   function evKey(ev) { return `${ev.id}@${ev.date}`; }
 
   function renderEvent(ev) {
     const el = document.createElement("div");
-    el.className = `ev kind-${ev.kind}${ev.is_study_period ? " is-study-period" : ""}`;
+    el.className = `ev kind-${ev.kind}`;
     el.dataset.evId = ev.id;
     el.dataset.evDate = ev.date;
     el.dataset.recurrence = ev.recurrence;
@@ -201,7 +295,10 @@
   function renderBlock(b) {
     const el = document.createElement("div");
     el.className = "study-block";
-    el.style.color = b.colour;
+    // ~35 min and shorter can't hold two stacked lines of text without
+    // looking cramped — collapse to a single-line layout instead.
+    if ((b.end_time - b.start_time) < 0.6) el.classList.add("compact");
+    el.style.background = b.colour;
     positionEvent(el, b.start_time, b.end_time);
     el.innerHTML = `
       <span class="ev-name">${escapeHtml(b.name)}</span>
@@ -284,6 +381,21 @@
     }
   }
 
+  function fillPeriodPresets(select) {
+    select.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = ""; none.textContent = "— None —";
+    select.appendChild(none);
+    for (const p of state.periods) {
+      const opt = document.createElement("option");
+      opt.value = String(p.id);
+      opt.textContent = `${p.name} (${formatTime(p.start_time)} – ${formatTime(p.end_time)})`;
+      opt.dataset.start = p.start_time;
+      opt.dataset.end = p.end_time;
+      select.appendChild(opt);
+    }
+  }
+
   function openModal(modeCtx) {
     const modal = document.getElementById("eventModal");
     const form = document.getElementById("evForm");
@@ -295,8 +407,10 @@
     errors.textContent = "";
 
     fillSelect(form.elements.kind, initialData.kinds, modeCtx.kind || "subject");
-    fillSelect(form.elements.recurrence, initialData.recurrences, modeCtx.recurrence || "weekly");
+    fillSelect(form.elements.recurrence, initialData.recurrences,
+               modeCtx.recurrence || initialData.default_recurrence || "fortnightly");
     fillSubjects(form.elements.subject_id, modeCtx.subject_id || null);
+    fillPeriodPresets(form.elements.period_preset);
 
     form.elements.name.value = modeCtx.name || "";
     form.elements.start_time.value = modeCtx.start_time;
@@ -304,7 +418,6 @@
     form.elements.start_display.value = formatTime(modeCtx.start_time);
     form.elements.end_display.value = formatTime(modeCtx.end_time);
     form.elements.anchor_date.value = modeCtx.anchor_date || modeCtx.date;
-    form.elements.is_study_period.checked = !!modeCtx.is_study_period;
 
     title.textContent = modeCtx.id ? "Edit event" : "New event";
     delBtn.hidden = !modeCtx.id;
@@ -376,7 +489,6 @@
       end_time: snap(endDec),
       anchor_date: form.elements.anchor_date.value,
       subject_id: subjId ? parseInt(subjId, 10) : null,
-      is_study_period: form.elements.is_study_period.checked,
     };
 
     let result;
@@ -466,6 +578,24 @@
     });
   });
 
+  // Period preset → populate start/end. Selecting "None" leaves the
+  // inputs untouched so the user can still type custom times after.
+  const presetSelect = document.querySelector('[name="period_preset"]');
+  if (presetSelect) {
+    presetSelect.addEventListener("change", () => {
+      const opt = presetSelect.options[presetSelect.selectedIndex];
+      if (!opt || !opt.value) return;
+      const s = parseFloat(opt.dataset.start);
+      const e = parseFloat(opt.dataset.end);
+      if (!isFinite(s) || !isFinite(e)) return;
+      const form = document.getElementById("evForm");
+      form.elements.start_display.value = formatTime(s);
+      form.elements.end_display.value = formatTime(e);
+      form.elements.start_time.value = String(s);
+      form.elements.end_time.value = String(e);
+    });
+  }
+
   // ------------------------------------------------------------------
   // Click-to-create / click-to-edit / drag-to-move on the grid
   // ------------------------------------------------------------------
@@ -474,8 +604,8 @@
   //   { kind: "create", colEl, startY, currentY, ghost }
   //   { kind: "move",   evEls: [{el, ev, originalTop, originalDate}], pointerStartY }
 
-  function decimalFromY(y) {
-    return HOUR_START + y / HOUR_PX;
+  function decimalFromY(y, col) {
+    return HOUR_START + y / dayHourPx(col);
   }
 
   grid.addEventListener("mousedown", (e) => {
@@ -519,33 +649,100 @@
     }
 
     if (col && e.button === 0) {
-      // Empty space — drag to define a new event range.
+      // Empty space — drag to define a new event range. Refuse the gesture
+      // when the click lands inside the sleep window so the user doesn't
+      // accidentally schedule a class for 2 AM. The server rejects this
+      // case too — but the client refusal lets us show "no entry" feedback
+      // immediately instead of after a round-trip.
       const rect = col.getBoundingClientRect();
+      const hourPx = dayHourPx(col);
       const startY = e.clientY - rect.top;
+      const unsnappedDec = HOUR_START + startY / hourPx;
+      if (inSleepWindow(unsnappedDec)) {
+        flashSleepBlocked(col);
+        e.preventDefault();
+        return;
+      }
+      // The ghost block is positioned at the RAW click y so its top sits
+      // exactly under the cursor — no snap drift visible during the drag.
+      // Snap only happens at mouseup when we open the modal with rounded
+      // times. Prior versions snapped startDec here and used that to
+      // compute the ghost top, which produced a 1-4 px gap between cursor
+      // and ghost — perceived as "shifted up" especially at high zoom.
       const ghost = document.createElement("div");
       ghost.className = "ev creating";
-      const startDec = snap(decimalFromY(startY));
-      positionEvent(ghost, startDec, startDec + 0.5);
+      ghost.style.top = `${startY}px`;
+      ghost.style.height = `${Math.max(20, hourPx * 0.5)}px`;
       col.appendChild(ghost);
       dragCtx = {
         kind: "create",
         col,
-        startDec,
-        currentDec: startDec + 0.5,
+        hourPx,
+        startY,                 // visual anchor in px
+        currentY: startY + hourPx * 0.5,
+        startDec: unsnappedDec, // raw — snap on release
+        currentDec: unsnappedDec + 0.5,
         ghost,
       };
       e.preventDefault();
     }
   });
 
+  function inSleepWindow(decHour) {
+    // Returns true if decHour is inside the user's sleep range — handles
+    // the wrap-past-midnight case.
+    if (state.sleepStart === state.sleepEnd) return false;
+    if (state.sleepStart < state.sleepEnd) {
+      return decHour >= state.sleepStart && decHour < state.sleepEnd;
+    }
+    return decHour >= state.sleepStart || decHour < state.sleepEnd;
+  }
+
+  function clampForSleep(startDec, endDec) {
+    // Find the start of the first sleep interval that begins at-or-after
+    // startDec, and refuse to drag past it.
+    const intervals = [];
+    if (state.sleepStart === state.sleepEnd) return endDec;
+    if (state.sleepStart < state.sleepEnd) {
+      intervals.push(state.sleepStart);
+    } else {
+      intervals.push(state.sleepStart);
+      // No need to add the wrap-around boundary at 0 — we're never
+      // dragging downward across midnight in a single column.
+    }
+    for (const boundary of intervals) {
+      if (boundary > startDec && endDec > boundary) return boundary;
+    }
+    return endDec;
+  }
+
+  function flashSleepBlocked(col) {
+    // Brief pulse on the sleep overlay so the user gets some feedback.
+    col.querySelectorAll(".sleep-overlay").forEach((el) => {
+      el.classList.add("flash");
+      setTimeout(() => el.classList.remove("flash"), 600);
+    });
+  }
+
   document.addEventListener("mousemove", (e) => {
     if (!dragCtx) return;
     if (dragCtx.kind === "create") {
       const rect = dragCtx.col.getBoundingClientRect();
       const y = clamp(e.clientY - rect.top, 0, rect.height);
-      const dec = snap(decimalFromY(y));
-      dragCtx.currentDec = Math.max(dragCtx.startDec + SNAP_HOURS, dec);
-      positionEvent(dragCtx.ghost, dragCtx.startDec, dragCtx.currentDec);
+      const hourPx = dragCtx.hourPx;
+      // Convert the cursor's y back to a decimal so we can apply the
+      // sleep-window clamp in the same units the clamp helper expects.
+      let dec = HOUR_START + y / hourPx;
+      dec = clampForSleep(dragCtx.startDec, dec);
+      // Re-derive the visual end y from the (possibly clamped) decimal.
+      const endY = (dec - HOUR_START) * hourPx;
+      const minEnd = dragCtx.startY + hourPx * SNAP_HOURS;
+      dragCtx.currentY = Math.max(minEnd, endY);
+      dragCtx.currentDec = HOUR_START + dragCtx.currentY / hourPx;
+      // Ghost top + height follow the raw cursor — no snap drift while
+      // the user is moving. Snap only when the modal opens (mouseup).
+      dragCtx.ghost.style.top = `${dragCtx.startY}px`;
+      dragCtx.ghost.style.height = `${Math.max(20, dragCtx.currentY - dragCtx.startY)}px`;
       return;
     }
     if (dragCtx.kind === "move") {
@@ -594,14 +791,18 @@
 
     if (ctx.kind === "create") {
       ctx.ghost.remove();
-      const dur = ctx.currentDec - ctx.startDec;
-      if (dur < SNAP_HOURS) return;
+      // Snap to 5-minute boundaries ONLY now, at handoff to the modal.
+      // During the drag the ghost tracked the cursor raw, but the stored
+      // times need to be on the grid so the scheduler's math stays clean.
+      const snappedStart = snap(ctx.startDec);
+      const snappedEnd = snap(ctx.currentDec);
+      if (snappedEnd - snappedStart < SNAP_HOURS) return;
       openModal({
         date: ctx.col.dataset.date,
         anchor_date: ctx.col.dataset.date,
-        start_time: ctx.startDec,
-        end_time: ctx.currentDec,
-        recurrence: "weekly",
+        start_time: snappedStart,
+        end_time: snappedEnd,
+        recurrence: initialData.default_recurrence || "fortnightly",
         kind: "subject",
       });
       return;
@@ -624,7 +825,6 @@
             subject_id: first.ev.subject_id,
             start_time: first.ev.start_time,
             end_time: first.ev.end_time,
-            is_study_period: first.ev.is_study_period,
           });
         }
         return;
