@@ -4,7 +4,7 @@
 <div class="center-screen">
   <form class="auth-card" method="post" action="{{ url_for('login') }}">
     <div class="logo-row">
-      <div class="logo-big" style="width:56px;height:56px;border-radius:14px;background:var(--primary);color:#fff;font-size:24px;display:grid;place-items:center;">○</div>
+      <img class="logo-big" src="{{ url_for('static', filename='img/optima.png') }}" alt="Optima" style="width:56px;height:56px;">
     </div>
     <h1>Welcome back</h1>
     <p class="sub">Sign in to sync your schedule.</p>

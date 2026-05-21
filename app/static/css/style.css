@@ -666,3 +666,36 @@ html[data-theme="dark"] .flash.ok    { background: #1a3a25; color: #c0eed1; bord
   .app-shell { grid-template-columns: 1fr; }
   .content { padding: 0; }
 }
+
+/* --- logo image rules ----------------------------------------------------
+   When .logo / .logo-big contains an <img> (the real product mark) the
+   purple-box fallback styling is replaced — the PNG carries its own
+   squircle, gradient, and shine. */
+.sidebar .logo img,
+.sidebar .logo > img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 12px;
+}
+.sidebar .logo:has(img) {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.auth-card .logo-row img.logo-big {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  object-fit: contain;
+}
+.splash img.logo-big {
+  width: 132px;
+  height: 132px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  display: block;
+  margin: 0 auto 28px;
+  object-fit: contain;
+}

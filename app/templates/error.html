@@ -3,7 +3,7 @@
 {% block layout %}
 <div class="center-screen">
   <div class="auth-card" style="text-align:center;">
-    <div class="logo-big" style="width:56px;height:56px;border-radius:14px;background:var(--primary);color:#fff;font-size:24px;display:grid;place-items:center;margin:0 auto 12px;">○</div>
+    <img class="logo-big" src="{{ url_for('static', filename='img/optima.png') }}" alt="Optima" style="width:56px;height:56px;margin:0 auto 12px;display:block;">
     <h1>{{ code }}</h1>
     <p class="sub">{{ message }}</p>
     <a class="btn" href="/" style="margin-top:8px;">Back to Optima</a>

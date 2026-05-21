@@ -18,7 +18,7 @@
   <div class="app-shell">
     {% if user %}
     <aside class="sidebar" aria-label="Main navigation">
-      <a href="{{ url_for('dashboard') }}" class="logo" title="Optima">O</a>
+      <a href="{{ url_for('dashboard') }}" class="logo" title="Optima"><img src="{{ url_for('static', filename='img/optima.png') }}" alt="Optima"></a>
       <a href="{{ url_for('dashboard') }}"  class="nav {% if active=='dashboard' %}active{% endif %}" title="Dashboard">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></svg>
       </a>
