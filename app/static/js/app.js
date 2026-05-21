@@ -66,9 +66,7 @@
     }
   });
 
-  // Splash auto-redirect — gives a beat of brand animation before login.
-  if (document.body.classList.contains("splash-page")) {
-    const next = document.body.getAttribute("data-next") || "/login";
-    setTimeout(() => { window.location.href = next; }, 1500);
-  }
+  // Splash stays up until the user clicks Sign in or Create account.
+  // (The earlier auto-redirect on a 1.5s timer was removed — a tester
+  // could blink and miss the brand frame entirely.)
 })();
