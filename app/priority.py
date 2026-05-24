@@ -48,11 +48,16 @@ def rank_assignments(assignments: List[Assignment], now: Optional[datetime] = No
     """Order open assignments by priority, descending.
 
     Tie-break by due_at (earlier first) so two tasks at the same score still
-    have a stable, intuitive order. Completed tasks are filtered out.
+    have a stable, intuitive order. Completed tasks stay on the list until
+    their due-at moment passes — finishing early is a win the user should
+    still see acknowledged on the dashboard. Once a completed task is past
+    its due date, it drops off (and lives on in the history view).
     """
+    now_dt = now or datetime.now()
     for a in assignments:
         a.priority_score = priority_score(a, now)
-    return sorted(
-        [a for a in assignments if not a.completed],
-        key=lambda a: (-a.priority_score, a.due_at()),
-    )
+    visible = [
+        a for a in assignments
+        if not a.completed or a.due_at() > now_dt
+    ]
+    return sorted(visible, key=lambda a: (-a.priority_score, a.due_at()))
