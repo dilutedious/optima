@@ -203,6 +203,11 @@ class Assignment:
     est_hours: float = 0.0
     completion_percent: float = 0.0
     completed: bool = False
+    # Set once the user drags the progress slider by hand. The auto-progress
+    # pass (which fills the bar as scheduled sessions elapse) backs off for a
+    # task once this is True, so a manual value — including dragging a 100%
+    # task back down — is never overwritten on the next dashboard load.
+    manual_progress: bool = False
     priority_score: float = 0.0
     # Encrypted private notes — base64 token produced by app.crypto.encrypt.
     # Stays opaque inside the on-disk JSON; only decryptable while the user
@@ -281,6 +286,7 @@ class Assignment:
             est_hours=float(d.get("est_hours", 0.0)),
             completion_percent=float(d.get("completion_percent", 0.0)),
             completed=bool(d.get("completed", False)),
+            manual_progress=bool(d.get("manual_progress", False)),
             priority_score=float(d.get("priority_score", 0.0)),
             private_notes_encrypted=d.get("private_notes_encrypted", ""),
         )

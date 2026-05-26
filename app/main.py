@@ -69,6 +69,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 # further attempts are rejected for COOLDOWN seconds. Lives in-process; resets
 # on application restart, which is fine for an offline desktop app.
 # ---------------------------------------------------------------------------
+
 MAX_FAILS = 5
 WINDOW = 5 * 60      # 5 minutes
 COOLDOWN = 60        # 60 seconds lockout
@@ -1013,12 +1014,16 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             return jsonify(ok=False, error="Invalid number"), 400
         for a in user.assignments:
             if a.id == task_id:
+                was_completed = a.completed
                 a.completion_percent = pct
                 a.completed = pct >= 1.0
-                # Reward XP when a task crosses to complete. Exam weighting
-                # carries through directly; homework/project use the same
-                # importance-weight mapping the scheduler uses.
-                if a.completed:
+                # Hand-set value — auto-progress must not override it on the
+                # next dashboard load (this is what lets a 100% task be
+                # dragged back down and stick).
+                a.manual_progress = True
+                # Reward XP only on the *transition* into complete, so
+                # dragging 100% -> 50% -> 100% doesn't farm points.
+                if a.completed and not was_completed:
                     user.study_points += int(a.scoring_weight())
                 storage.save_user(user)
                 return jsonify(ok=True, completion_percent=pct, study_points=user.study_points)
@@ -1098,7 +1103,10 @@ def _auto_progress_from_blocks(user: User, now: datetime) -> None:
                 # Half-elapsed session — count just the part that's passed.
                 elapsed_by_id[b.assignment_id] = elapsed_by_id.get(b.assignment_id, 0.0) + (now_dec - b.start_time)
     for a in user.assignments:
-        if a.completed or a.hours_required <= 0:
+        # Skip completed tasks, zero-hour tasks, and any task the user has
+        # taken manual control of (dragged the slider by hand) — auto-fill
+        # must never fight a hand-set value.
+        if a.completed or a.manual_progress or a.hours_required <= 0:
             continue
         auto_pct = min(1.0, elapsed_by_id.get(a.id, 0.0) / a.hours_required)
         if auto_pct > a.completion_percent:
