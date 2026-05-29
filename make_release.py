@@ -29,7 +29,6 @@ INCLUDE = [
     "feedback",
     "prototypes",
     "run.py",
-    "generate_docx.py",
     "install.sh",
     "make_release.py",
     "requirements.txt",
