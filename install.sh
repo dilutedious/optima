@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Optima — macOS / Linux installer
+# Optima — macOS installer
 #
 # Run from the project root once after unzipping:
 #     bash install.sh
@@ -7,9 +7,9 @@
 # What it does:
 #   1. Confirms Python 3.11+ is available
 #   2. Creates a virtual environment in .venv/
-#   3. Installs Flask, pywebview, python-docx into the venv
-#   4. Writes a launcher script Optima.command on your desktop (macOS)
-#      or ~/.local/bin/optima (Linux) so you can launch with a double-click
+#   3. Installs Flask, pywebview into the venv
+#   4. Writes a launcher script Optima.command on your desktop so you can
+#      launch with a double-click
 #
 # Re-running this script is safe — every step is idempotent.
 
@@ -55,33 +55,16 @@ pip install --quiet --upgrade pip
 pip install --quiet -r requirements.txt
 
 # ---- 4. Desktop launcher -------------------------------------------------
-OS="$(uname -s)"
-if [ "$OS" = "Darwin" ]; then
-    LAUNCHER="$HOME/Desktop/Optima.command"
-    cat > "$LAUNCHER" <<EOF
+LAUNCHER="$HOME/Desktop/Optima.command"
+cat > "$LAUNCHER" <<EOF
 #!/usr/bin/env bash
 cd "$PROJECT_DIR"
 source .venv/bin/activate
 python run.py
 EOF
-    chmod +x "$LAUNCHER"
-    echo "==> Wrote macOS launcher → $LAUNCHER"
-    echo "    Double-click that file to launch Optima."
-elif [ "$OS" = "Linux" ]; then
-    mkdir -p "$HOME/.local/bin"
-    LAUNCHER="$HOME/.local/bin/optima"
-    cat > "$LAUNCHER" <<EOF
-#!/usr/bin/env bash
-cd "$PROJECT_DIR"
-source .venv/bin/activate
-python run.py "\$@"
-EOF
-    chmod +x "$LAUNCHER"
-    echo "==> Wrote Linux launcher → $LAUNCHER"
-    echo "    Make sure $HOME/.local/bin is on your PATH, then run: optima"
-else
-    echo "==> Skipping launcher creation — unknown OS '$OS'."
-fi
+chmod +x "$LAUNCHER"
+echo "==> Wrote macOS launcher → $LAUNCHER"
+echo "    Double-click that file to launch Optima."
 
 echo
 echo "==> Done. Launch Optima with:"

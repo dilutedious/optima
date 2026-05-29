@@ -31,7 +31,6 @@ INCLUDE = [
     "run.py",
     "generate_docx.py",
     "install.sh",
-    "install.bat",
     "make_release.py",
     "requirements.txt",
     "README.md",
