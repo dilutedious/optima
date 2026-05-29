@@ -26,10 +26,16 @@ python3 run.py --browser
 
 The app stores all user data under `data/users/<username>.json`.
 
+> **First time?** See the **[Installation Guide](docs/Installation%20Guide.pdf)** for step-by-step setup, then the **[User Manual](docs/User%20Manual.pdf)** for how to use every feature (including adding a Dock shortcut).
+
 ## Documentation
 
-The full documentation suite lives on Google Docs. PDF exports will be
-committed to this repo once finalised.
+The full documentation set is in [`docs/`](docs/):
+
+- **[Installation Guide](docs/Installation%20Guide.pdf)** — install and run Optima on macOS, step by step.
+- **[User Manual](docs/User%20Manual.pdf)** — every feature explained, plus pinning a shortcut to the Dock.
+- [Reference Manual](docs/Reference%20Manual.pdf) — technical reference: data model, scheduler, security.
+- [Development Diary](docs/Development%20Diary.pdf) · [Evaluations](docs/Evaluations.pdf) · [Objectives Checklist](docs/Objectives%20Checklist.pdf) · [Testing Report](docs/Testing%20Report.pdf) · [Innovation Proposal](docs/Innovation%20Proposal.pdf)
 
 ## Project layout
 
@@ -47,7 +53,10 @@ Optima/
 │   ├── storage.py             # atomic-write JSON persistence
 │   ├── templates/             # Jinja2
 │   └── static/                # CSS (custom-property palette), JS, images
+├── img/                       # app icon (optima.png, logo.png)
+├── docs/                      # documentation PDFs (install, user, reference, ...)
 ├── data/                      # user JSON files (created on first run)
 ├── prototypes/                # v0.1, v0.2, v0.3, v1.1 snapshots
+├── tools/                     # smoke test, route check, benchmark
 └── feedback/                  # survey, interview prompts, round questionnaires
 ```
