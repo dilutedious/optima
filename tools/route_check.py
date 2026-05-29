@@ -93,6 +93,8 @@ def main() -> int:
         ("POST /api/tasks/1/progress",
          lambda: c.post("/api/tasks/1/progress",
                         json={"completion_percent": 0.75})),
+        ("POST /api/preferences/zoom",
+         lambda: c.post("/api/preferences/zoom", json={"zoom": 150})),
         # --- calendar API: period, event, move ---
         ("GET  /api/periods",
          lambda: c.get("/api/periods")),

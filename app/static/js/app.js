@@ -23,6 +23,51 @@
   applyPrefs(fromAttr);
   try { localStorage.setItem("optima.prefs", JSON.stringify(fromAttr)); } catch (e) {}
 
+  // -- Zoom via keyboard ---------------------------------------------------
+  // The native pywebview window has no browser chrome, so the OS Ctrl/Cmd +/-
+  // shortcuts never reach the page. We handle them ourselves: clamp to the
+  // same 75–200% range the server enforces, apply instantly, cache to
+  // localStorage, and debounce a save so a restart remembers the level.
+  const ZOOM_MIN = 75, ZOOM_MAX = 200, ZOOM_STEP = 10;
+  let currentZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, fromAttr.zoom || 100));
+  let zoomSaveTimer = null;
+
+  function persistZoom() {
+    clearTimeout(zoomSaveTimer);
+    zoomSaveTimer = setTimeout(function () {
+      fetch("/api/preferences/zoom", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ zoom: currentZoom }),
+      }).catch(function (err) { console.error(err); });
+    }, 400);
+  }
+
+  function setZoom(next) {
+    currentZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(next)));
+    document.body.style.zoom = currentZoom + "%";
+    // Keep the cached prefs and the preferences-page input (if shown) in sync.
+    try {
+      const cached = JSON.parse(localStorage.getItem("optima.prefs") || "{}");
+      cached.zoom = currentZoom;
+      localStorage.setItem("optima.prefs", JSON.stringify(cached));
+    } catch (e) {}
+    const input = document.querySelector('input[name="zoom"]');
+    if (input) input.value = currentZoom;
+    persistZoom();
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    if (e.key === "+" || e.key === "=") {           // = is the unshifted "+"
+      e.preventDefault(); setZoom(currentZoom + ZOOM_STEP);
+    } else if (e.key === "-" || e.key === "_") {
+      e.preventDefault(); setZoom(currentZoom - ZOOM_STEP);
+    } else if (e.key === "0") {                      // reset to 100%
+      e.preventDefault(); setZoom(100);
+    }
+  });
+
   // Toggle progress sliders inline on the dashboard. We update three
   // bits of UI on every input tick so the user sees their drag reflected
   // immediately — the bar fill, the "%" label next to the slider, and

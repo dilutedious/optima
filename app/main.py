@@ -833,7 +833,7 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             p.focus_highlights = bool(request.form.get("focus_highlights"))
             p.time_format = "12h" if request.form.get("time_format") == "12h" else "24h"
             try:
-                p.zoom = max(75, min(150, int(request.form.get("zoom", "100"))))
+                p.zoom = max(75, min(200, int(request.form.get("zoom", "100"))))
             except ValueError:
                 p.zoom = 100
             # Optional term-start update (the new week-A anchor).
@@ -861,6 +861,25 @@ def create_app(data_dir: Optional[Path] = None) -> Flask:
             flash("Preferences saved.", "ok")
             return redirect(url_for("preferences"))
         return render_template("preferences.html", user=user)
+
+    @app.route("/api/preferences/zoom", methods=["POST"])
+    def api_set_zoom():
+        """Persist a zoom level on its own.
+
+        The pywebview window has no browser chrome, so Ctrl/Cmd +/- never
+        reaches it — the keyboard handler in app.js drives zoom client-side
+        and posts the new level here so it survives a restart, without
+        round-tripping the whole preferences form (which would clobber any
+        unsaved toggles on another page).
+        """
+        user = _require_user()
+        try:
+            zoom = int((request.get_json(silent=True) or {}).get("zoom", 100))
+        except (TypeError, ValueError):
+            return jsonify(ok=False, error="Invalid number"), 400
+        user.preferences.zoom = max(75, min(200, zoom))
+        storage.save_user(user)
+        return jsonify(ok=True, zoom=user.preferences.zoom)
 
     # -------- assignment / subject CRUD ----------------------------------
 
