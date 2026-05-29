@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="optima.png" alt="Optima" width="128">
+  <img src="img/optima.png" alt="Optima" width="128">
 </p>
 
 # Optima — Automated Study Flow
